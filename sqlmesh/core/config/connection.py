@@ -2602,6 +2602,71 @@ _CONNECTION_CONFIG_EXCLUDE: t.Set[t.Type[ConnectionConfig]] = {
     BaseDuckDBConnectionConfig,  # type: ignore[type-abstract]
 }
 
+
+class DB2ConnectionConfig(ConnectionConfig):
+    """Configuration for IBM DB2 database connection.
+    
+    Args:
+        host: The DB2 server hostname or IP address.
+        port: The DB2 server port (default: 50000).
+        database: The DB2 database name.
+        username: The DB2 username.
+        password: The DB2 password.
+        concurrent_tasks: The maximum number of tasks that can use this connection concurrently.
+        register_comments: Whether or not to register model comments with the SQL engine.
+        pre_ping: Whether or not to pre-ping the connection before starting a new transaction.
+    """
+    
+    host: str
+    port: int = 50000
+    database: str
+    username: str
+    password: str
+    
+    concurrent_tasks: int = 4
+    register_comments: bool = True
+    pre_ping: bool = True
+    
+    type_: t.Literal["db2"] = Field(alias="type", default="db2")
+    DIALECT: t.ClassVar[t.Literal["db2"]] = "db2"
+    DISPLAY_NAME: t.ClassVar[t.Literal["DB2"]] = "DB2"
+    DISPLAY_ORDER: t.ClassVar[t.Literal[17]] = 17
+    
+    _engine_import_validator = _get_engine_import_validator("ibm_db", "db2")
+    
+    @property
+    def _connection_kwargs_keys(self) -> t.Set[str]:
+        return {
+            "host",
+            "port",
+            "database",
+            "username",
+            "password",
+        }
+    
+    @property
+    def _engine_adapter(self) -> t.Type[EngineAdapter]:
+        return engine_adapter.DB2EngineAdapter
+    
+    @property
+    def _connection_factory(self) -> t.Callable:
+        import ibm_db_dbi
+        
+        def connect_db2(**kwargs: t.Any) -> t.Any:
+            # Build DB2 connection string
+            conn_str = (
+                f"DATABASE={kwargs['database']};"
+                f"HOSTNAME={kwargs['host']};"
+                f"PORT={kwargs['port']};"
+                f"PROTOCOL=TCPIP;"
+                f"UID={kwargs['username']};"
+                f"PWD={kwargs['password']};"
+            )
+            return ibm_db_dbi.connect(conn_str, "", "")
+        
+        return connect_db2
+
+
 CONNECTION_CONFIG_TO_TYPE = {
     # Map all subclasses of ConnectionConfig to the value of their `type_` field.
     tpe.all_field_infos()["type_"].default: tpe

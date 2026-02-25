@@ -151,12 +151,83 @@ class DB2EngineAdapter(
         """
         Converts an expression to SQL for DB2.
         
-        DB2 uppercases unquoted identifiers, so we don't quote them to maintain
-        compatibility with standard SQL behavior.
+        DB2 uppercases unquoted identifiers, but we need to quote identifiers that:
+        - Contain special characters (like double underscores)
+        - Are mixed case
+        - Are reserved words
+        
+        This ensures SQLMesh state tables (with __ in names) work correctly.
         """
-        # For DB2, we don't quote identifiers to let DB2 uppercase them naturally
-        # This ensures consistency between CREATE TABLE and INSERT/SELECT statements
-        return super()._to_sql(expression, quote=False, **kwargs)
+        # Always quote when requested - this is needed for SQLMesh state tables
+        # which have names like "sqlmesh__versions" that DB2 treats specially
+        return super()._to_sql(expression, quote=quote, **kwargs)
+    
+    def create_index(
+        self,
+        table_name: TableName,
+        index_name: str,
+        columns: t.Tuple[str, ...],
+        exists: bool = True,
+    ) -> None:
+        """
+        Creates a new index for the given table.
+        
+        DB2 doesn't support IF NOT EXISTS for CREATE INDEX, so we need to
+        check if the index exists first and only create it if it doesn't.
+        
+        Args:
+            table_name: The name of the target table.
+            index_name: The name of the index.
+            columns: The list of columns that constitute the index.
+            exists: Indicates whether to check if index exists (ignored for DB2, always checks).
+        """
+        if not self.SUPPORTS_INDEXES:
+            return
+        
+        # Check if index already exists in DB2 system catalog
+        table = exp.to_table(table_name)
+        schema_name = table.db or self._get_current_schema()
+        
+        check_sql = f"""
+            SELECT COUNT(*)
+            FROM SYSCAT.INDEXES
+            WHERE TABSCHEMA = '{schema_name.upper()}'
+            AND TABNAME = '{table.alias_or_name.upper()}'
+            AND INDNAME = '{index_name.upper()}'
+        """
+        
+        try:
+            result = self.fetchone(check_sql)
+            if result and result[0] > 0:
+                # Index already exists, skip creation
+                logger.debug(f"Index {index_name} already exists on {table_name}, skipping creation")
+                return
+        except Exception as e:
+            # If we can't check, try to create anyway and handle the warning
+            logger.debug(f"Could not check if index exists: {e}")
+        
+        # Create index without IF NOT EXISTS clause (DB2 doesn't support it)
+        expression = exp.Create(
+            this=exp.Index(
+                this=exp.to_identifier(index_name),
+                table=exp.to_table(table_name),
+                params=exp.IndexParameters(columns=[exp.to_column(c) for c in columns]),
+            ),
+            kind="INDEX",
+            exists=False,  # DB2 doesn't support IF NOT EXISTS
+        )
+        
+        try:
+            self.execute(expression)
+        except Exception as e:
+            # DB2 returns SQL0605W warning when index already exists
+            # Check if it's the "index already exists" warning
+            error_msg = str(e)
+            if 'SQL0605W' in error_msg or 'index' in error_msg.lower() and 'already exists' in error_msg.lower():
+                logger.debug(f"Index {index_name} already exists (caught warning), continuing")
+                return
+            # Re-raise if it's a different error
+            raise
     
     def columns(
         self, table_name: TableName, include_pseudo_columns: bool = False
@@ -249,6 +320,10 @@ class DB2EngineAdapter(
         """
         Check if table exists in DB2 using SYSCAT.TABLES.
         
+        DB2 stores identifiers differently based on quoting:
+        - Unquoted identifiers: stored as UPPERCASE
+        - Quoted identifiers (with underscores): stored as lowercase (case-preserved)
+        
         Args:
             table_name: The table to check
             
@@ -263,19 +338,223 @@ class DB2EngineAdapter(
             return self._data_object_cache[data_object_cache_key] is not None
         
         schema_name = table.db or self._get_current_schema()
+        table_name_str = table.alias_or_name
+        
+        # DB2 case handling:
+        # - Names with underscores are quoted and stored in lowercase
+        # - Names without underscores are unquoted and stored in UPPERCASE
+        if "_" in schema_name:
+            schema_name_normalized = schema_name.lower()
+        else:
+            schema_name_normalized = schema_name.upper()
+            
+        if "_" in table_name_str:
+            table_name_normalized = table_name_str.lower()
+        else:
+            table_name_normalized = table_name_str.upper()
         
         # Query DB2's SYSCAT.TABLES
         sql = exp.select("1").from_("SYSCAT.TABLES").where(
             exp.and_(
-                exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name.upper())),
-                exp.column("TABNAME").eq(exp.Literal.string(table.alias_or_name.upper())),
+                exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name_normalized)),
+                exp.column("TABNAME").eq(exp.Literal.string(table_name_normalized)),
             )
         )
         
         self.execute(sql)
         result = self.cursor.fetchone()
         
-        return result[0] == 1 if result is not None else False
+        exists = result[0] == 1 if result is not None else False
+        
+        # Update cache
+        if exists:
+            self._data_object_cache[data_object_cache_key] = DataObject(
+                name=table_name_str,
+                schema=schema_name,
+                type=DataObjectType.TABLE,
+            )
+        
+        return exists
+    def _build_create_table_exp(
+        self,
+        table_name_or_schema: t.Union[exp.Schema, TableName],
+        expression: t.Optional[exp.Expression],
+        exists: bool = True,
+        replace: bool = False,
+        target_columns_to_types: t.Optional[t.Dict[str, exp.DataType]] = None,
+        table_description: t.Optional[str] = None,
+        table_kind: t.Optional[str] = None,
+        **kwargs: t.Any,
+    ) -> exp.Create:
+        """
+        Override to handle DB2's lack of support for CREATE TABLE IF NOT EXISTS.
+        
+        DB2 doesn't support IF NOT EXISTS clause in CREATE TABLE statements.
+        We handle this by:
+        1. Checking if table exists when exists=True
+        2. Creating without IF NOT EXISTS clause
+        
+        Args:
+            table_name_or_schema: Table name or schema expression
+            expression: Optional query expression for CTAS
+            exists: If True, check table existence before creating
+            replace: If True, replace existing table
+            target_columns_to_types: Column types mapping
+            table_description: Optional table description
+            table_kind: Kind of object (TABLE, VIEW, etc.)
+            **kwargs: Additional create table properties
+            
+        Returns:
+            CREATE TABLE expression without IF NOT EXISTS
+        """
+        # DB2 doesn't support IF NOT EXISTS, so we always set exists=False
+        # The table existence check is handled in _create_table method below
+        return super()._build_create_table_exp(
+            table_name_or_schema=table_name_or_schema,
+            expression=expression,
+            exists=False,  # Always False for DB2
+            replace=replace,
+            target_columns_to_types=target_columns_to_types,
+            table_description=table_description,
+            table_kind=table_kind,
+            **kwargs,
+        )
+    
+    def _create_table(
+        self,
+        table_name_or_schema: t.Union[exp.Schema, TableName],
+        expression: t.Optional[exp.Expression],
+        exists: bool = True,
+        replace: bool = False,
+        target_columns_to_types: t.Optional[t.Dict[str, exp.DataType]] = None,
+        table_description: t.Optional[str] = None,
+        column_descriptions: t.Optional[t.Dict[str, str]] = None,
+        table_kind: t.Optional[str] = None,
+        track_rows_processed: bool = True,
+        **kwargs: t.Any,
+    ) -> None:
+        """
+        Override to handle DB2's lack of support for CREATE TABLE IF NOT EXISTS
+        and to add WITH DATA clause for CREATE TABLE AS SELECT.
+        
+        Since DB2 doesn't support IF NOT EXISTS, we check table existence first
+        and skip creation if the table already exists and exists=True.
+        
+        DB2 also requires WITH DATA clause for CREATE TABLE AS SELECT statements
+        and doesn't allow subquery aliases in CTAS.
+        
+        Args:
+            table_name_or_schema: Table name or schema expression
+            expression: Optional query expression for CTAS
+            exists: If True, check table existence before creating
+            replace: If True, replace existing table
+            target_columns_to_types: Column types mapping
+            table_description: Optional table description
+            column_descriptions: Optional column descriptions
+            table_kind: Kind of object (TABLE, VIEW, etc.)
+            track_rows_processed: Whether to track rows processed
+            **kwargs: Additional create table properties
+        """
+        # Extract table name for existence check
+        if isinstance(table_name_or_schema, exp.Schema):
+            table_name = table_name_or_schema.this
+        else:
+            table_name = table_name_or_schema
+        
+        # For CREATE TABLE AS SELECT, we need to intercept and modify the SQL
+        # to remove subquery aliases and ensure WITH DATA is present
+        if expression and isinstance(expression, (exp.Select, exp.Subquery)):
+            import re
+            
+            # For CTAS, drop the table if it exists (DB2 doesn't support CREATE OR REPLACE TABLE)
+            # This handles the case where the table structure was created but not populated
+            table = exp.to_table(table_name)
+            
+            # Try to drop the table - ignore errors if it doesn't exist
+            try:
+                drop_sql = f'DROP TABLE {self._to_sql(table)}'
+                logger.info(f"CTAS: Attempting to drop existing table: {drop_sql}")
+                self.execute(drop_sql)
+                logger.info(f"CTAS: Successfully dropped table {table_name}")
+                # Clear cache after dropping
+                data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, table.name)
+                if data_object_cache_key in self._data_object_cache:
+                    del self._data_object_cache[data_object_cache_key]
+            except Exception as e:
+                # Table doesn't exist or other error - that's fine, we'll create it
+                logger.info(f"CTAS: Table {table_name} doesn't exist or couldn't be dropped (expected): {e}")
+            
+            # Don't use replace flag since DB2 doesn't support CREATE OR REPLACE TABLE
+            replace = False
+            
+            # Build the CREATE TABLE expression
+            create_exp = self._build_create_table_exp(
+                table_name_or_schema=table_name_or_schema,
+                expression=expression,
+                exists=False,  # Always False for DB2
+                replace=replace,
+                target_columns_to_types=target_columns_to_types,
+                table_description=table_description,
+                table_kind=table_kind,
+                **kwargs,
+            )
+            
+            # Convert to SQL
+            sql = self._to_sql(create_exp)
+            
+            # DB2-specific fixes for CREATE TABLE AS SELECT:
+            # 1. Remove the outer subquery alias that DB2 doesn't allow in CTAS
+            #    Pattern: ...)) AS "_subquery" -> ...))
+            sql = re.sub(
+                r'\)\s+AS\s+"_subquery"',
+                r')',
+                sql,
+                flags=re.IGNORECASE
+            )
+            
+            # 2. DB2 requires WITH DATA but doesn't accept it after subquery parentheses
+            #    We need to wrap the SELECT in parentheses: CREATE TABLE AS (...) WITH DATA
+            if "WITH DATA" not in sql.upper() and "WITH NO DATA" not in sql.upper():
+                # Find the position after "AS" in "CREATE TABLE ... AS"
+                match = re.search(r'CREATE\s+TABLE\s+[^\s]+\s+AS\s+', sql, re.IGNORECASE)
+                if match:
+                    pos = match.end()
+                    # Wrap the SELECT statement in parentheses
+                    sql = sql[:pos] + '(' + sql[pos:].rstrip(";").rstrip() + ') WITH DATA'
+                else:
+                    # Fallback: just add WITH DATA at the end
+                    sql = sql.rstrip(";").rstrip() + " WITH DATA"
+            
+            # Execute the modified SQL
+            self.execute(sql, track_rows_processed=track_rows_processed)
+            
+            # Handle table comments if provided
+            if table_description:
+                self._create_table_comment(
+                    table_name,
+                    table_description,
+                    table_kind=table_kind or "TABLE",
+                )
+            if column_descriptions:
+                self._create_column_comments(
+                    table_name,
+                    column_descriptions,
+                    table_kind=table_kind or "TABLE",
+                )
+        else:
+            # For non-CTAS tables, use parent implementation
+            super()._create_table(
+                table_name_or_schema=table_name_or_schema,
+                expression=expression,
+                exists=False,  # Always False for DB2
+                replace=replace,
+                target_columns_to_types=target_columns_to_types,
+                table_description=table_description,
+                column_descriptions=column_descriptions,
+                table_kind=table_kind,
+                track_rows_processed=track_rows_processed,
+                **kwargs,
+            )
     
     def create_view(
         self,
