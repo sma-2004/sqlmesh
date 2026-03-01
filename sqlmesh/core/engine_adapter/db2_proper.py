@@ -246,6 +246,8 @@ class DB2EngineAdapter(
         schema_name = table.db or self._get_current_schema()
         
         # Query DB2's SYSCAT.COLUMNS system catalog
+        # Note: DB2 stores identifiers in the case they were created
+        # Don't force uppercase - use the actual case from the table name
         sql = exp.select(
             exp.column("COLNAME").as_("column_name"),
             exp.column("TYPENAME").as_("data_type"),
@@ -253,8 +255,8 @@ class DB2EngineAdapter(
             exp.column("SCALE").as_("scale"),
         ).from_("SYSCAT.COLUMNS").where(
             exp.and_(
-                exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name.upper())),
-                exp.column("TABNAME").eq(exp.Literal.string(table.alias_or_name.upper())),
+                exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name)),
+                exp.column("TABNAME").eq(exp.Literal.string(table.alias_or_name)),
             )
         ).order_by("COLNO")
         
@@ -269,8 +271,9 @@ class DB2EngineAdapter(
         columns = {}
         for column_name, data_type, length, scale in resp:
             # Convert DB2 types to sqlglot DataType
+            # Keep column names in their original case from DB2
             db2_type = self._db2_type_to_sqlglot(data_type, length, scale)
-            columns[column_name.lower()] = db2_type
+            columns[column_name] = db2_type
         
         return columns
     
