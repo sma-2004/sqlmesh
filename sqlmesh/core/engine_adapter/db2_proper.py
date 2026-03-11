@@ -464,30 +464,88 @@ class DB2EngineAdapter(
         else:
             table_name = table_name_or_schema
         
+        # CRITICAL FIX: Drop staging tables/views before creation
+        # SQLMesh staging objects have names like "sqlmesh__SCHEMA.TABLE__HASH"
+        # These must always be dropped before recreation to avoid SQL0601N errors
+        table = exp.to_table(table_name)
+        table_name_str = str(table.name) if hasattr(table, 'name') else str(table_name)
+        schema_name = table.db or self._get_current_schema()
+        
+        if "sqlmesh__" in table_name_str.lower() or "sqlmesh__" in schema_name.lower():
+            # This is a staging object - try to drop both TABLE and VIEW
+            # Try multiple variations due to potential naming issues
+            drop_attempts = []
+            
+            # Try both TABLE and VIEW for each format
+            for object_type in ['TABLE', 'VIEW']:
+                drop_attempts.extend([
+                    # Standard format: schema.table
+                    f'DROP {object_type} {self._to_sql(table)}',
+                    # Quoted format
+                    f'DROP {object_type} "{schema_name}"."{table_name_str}"',
+                    # Uppercase format (DB2 default)
+                    f'DROP {object_type} {schema_name.upper()}.{table_name_str.upper()}',
+                    # Lowercase format (for quoted identifiers with underscores)
+                    f'DROP {object_type} "{schema_name.lower()}"."{table_name_str.lower()}"',
+                ])
+            
+            dropped = False
+            for drop_sql in drop_attempts:
+                try:
+                    logger.info(f"Staging object drop attempt: {drop_sql}")
+                    self.execute(drop_sql)
+                    logger.info(f"Successfully dropped staging object with: {drop_sql}")
+                    dropped = True
+                    # Clear cache after dropping
+                    data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, table.name)
+                    if data_object_cache_key in self._data_object_cache:
+                        del self._data_object_cache[data_object_cache_key]
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    if 'SQL0204N' in error_msg or 'does not exist' in error_msg.lower() or 'SQL0205N' in error_msg:
+                        logger.debug(f"Object doesn't exist with format: {drop_sql}")
+                        continue
+                    else:
+                        logger.debug(f"Drop failed with: {drop_sql}, error: {e}")
+                        continue
+            
+            if not dropped:
+                logger.warning(f"Could not drop staging object {table_name} with any format - will try to create anyway")
+        
         # For CREATE TABLE AS SELECT, we need to intercept and modify the SQL
         # to remove subquery aliases and ensure WITH DATA is present
         if expression and isinstance(expression, (exp.Select, exp.Subquery)):
             import re
             
-            # For CTAS, drop the table if it exists (DB2 doesn't support CREATE OR REPLACE TABLE)
-            # This handles the case where the table structure was created but not populated
             table = exp.to_table(table_name)
             
-            # Try to drop the table - ignore errors if it doesn't exist
-            try:
-                drop_sql = f'DROP TABLE {self._to_sql(table)}'
-                logger.info(f"CTAS: Attempting to drop existing table: {drop_sql}")
-                self.execute(drop_sql)
-                logger.info(f"CTAS: Successfully dropped table {table_name}")
-                # Clear cache after dropping
-                data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, table.name)
-                if data_object_cache_key in self._data_object_cache:
-                    del self._data_object_cache[data_object_cache_key]
-            except Exception as e:
-                # Table doesn't exist or other error - that's fine, we'll create it
-                logger.info(f"CTAS: Table {table_name} doesn't exist or couldn't be dropped (expected): {e}")
+            # Check if table exists
+            table_exists_flag = self.table_exists(table)
             
-            # Don't use replace flag since DB2 doesn't support CREATE OR REPLACE TABLE
+            # Handle table existence based on exists and replace parameters
+            if table_exists_flag:
+                if exists and not replace:
+                    # Table exists and exists=True, skip creation
+                    logger.info(f"CTAS: Table {table_name} already exists, skipping creation (exists=True)")
+                    return
+                elif replace or not exists:
+                    # Drop the table if replace=True or exists=False
+                    # DB2 doesn't support CREATE OR REPLACE TABLE, so we drop first
+                    try:
+                        drop_sql = f'DROP TABLE {self._to_sql(table)}'
+                        logger.info(f"CTAS: Dropping existing table: {drop_sql}")
+                        self.execute(drop_sql)
+                        logger.info(f"CTAS: Successfully dropped table {table_name}")
+                        # Clear cache after dropping
+                        data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, table.name)
+                        if data_object_cache_key in self._data_object_cache:
+                            del self._data_object_cache[data_object_cache_key]
+                    except Exception as e:
+                        logger.warning(f"CTAS: Failed to drop table {table_name}: {e}")
+                        raise
+            
+            # Don't use replace flag in CREATE statement since DB2 doesn't support it
             replace = False
             
             # Build the CREATE TABLE expression
@@ -606,31 +664,66 @@ class DB2EngineAdapter(
         """
         Drop a view in DB2.
         
-        DB2 doesn't support IF EXISTS or CASCADE for views, so we check existence first.
+        DB2 doesn't support IF EXISTS or CASCADE for views.
+        For staging views, try multiple naming formats due to case sensitivity issues.
         """
         table = exp.to_table(view_name)
-        view_name_str = table.sql(dialect=self.dialect)
+        view_name_str = str(table.name) if hasattr(table, 'name') else str(view_name)
+        schema_name = table.db or self._get_current_schema()
         
-        if ignore_if_not_exists:
-            # Check if view exists
-            schema = table.db or self.get_current_catalog()
-            view_only = table.name
+        # Check if this is a staging view
+        is_staging = "sqlmesh__" in view_name_str.lower() or "sqlmesh__" in schema_name.lower()
+        
+        if is_staging:
+            # For staging views, try multiple formats without checking existence
+            drop_attempts = [
+                f'DROP VIEW {self._to_sql(table)}',
+                f'DROP VIEW "{schema_name}"."{view_name_str}"',
+                f'DROP VIEW {schema_name.upper()}.{view_name_str.upper()}',
+                f'DROP VIEW "{schema_name.lower()}"."{view_name_str.lower()}"',
+            ]
             
-            check_sql = exp.select("1").from_("SYSCAT.VIEWS").where(
-                exp.and_(
-                    exp.column("VIEWSCHEMA").eq(exp.Literal.string(schema.upper() if schema else "")),
-                    exp.column("VIEWNAME").eq(exp.Literal.string(view_only.upper())),
+            dropped = False
+            for drop_sql in drop_attempts:
+                try:
+                    logger.info(f"Staging view drop attempt: {drop_sql}")
+                    self.execute(drop_sql)
+                    logger.info(f"Successfully dropped staging view with: {drop_sql}")
+                    dropped = True
+                    self._clear_data_object_cache(view_name)
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    if 'SQL0204N' in error_msg or 'SQL0205N' in error_msg or 'does not exist' in error_msg.lower():
+                        logger.debug(f"View doesn't exist with format: {drop_sql}")
+                        continue
+                    else:
+                        logger.debug(f"Drop failed with: {drop_sql}, error: {e}")
+                        continue
+            
+            if not dropped and not ignore_if_not_exists:
+                raise SQLMeshError(f"Could not drop staging view {view_name} with any format")
+        else:
+            # For regular views, use the standard approach
+            if ignore_if_not_exists:
+                # Check if view exists
+                view_only = table.name
+                
+                check_sql = exp.select("1").from_("SYSCAT.VIEWS").where(
+                    exp.and_(
+                        exp.column("VIEWSCHEMA").eq(exp.Literal.string(schema_name.upper())),
+                        exp.column("VIEWNAME").eq(exp.Literal.string(view_only.upper())),
+                    )
                 )
-            )
-            self.execute(check_sql)
-            if not self.cursor.fetchone():
-                logger.debug(f"View {view_name_str} doesn't exist")
-                return
-        
-        # Drop view - DB2 doesn't support IF EXISTS or CASCADE for views
-        drop_sql = f"DROP VIEW {view_name_str}"
-        self.execute(drop_sql)
-        self._clear_data_object_cache(view_name)
+                self.execute(check_sql)
+                if not self.cursor.fetchone():
+                    logger.debug(f"View {view_name_str} doesn't exist")
+                    return
+            
+            # Drop view - DB2 doesn't support IF EXISTS or CASCADE for views
+            drop_sql = f"DROP VIEW {self._to_sql(table)}"
+            self.execute(drop_sql)
+            self._clear_data_object_cache(view_name)
     
     def _get_data_objects(
         self, schema_name: SchemaName, object_names: t.Optional[t.Set[str]] = None
