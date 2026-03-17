@@ -2623,9 +2623,24 @@ class DB2ConnectionConfig(ConnectionConfig):
     username: str
     password: str
     
+    # Connection options
     concurrent_tasks: int = 4
     register_comments: bool = True
     pre_ping: bool = True
+    
+    # SSL/TLS options
+    ssl: bool = False
+    ssl_cert: t.Optional[str] = None
+    ssl_key: t.Optional[str] = None
+    ssl_ca: t.Optional[str] = None
+    
+    # Timeout options (in seconds)
+    connect_timeout: int = 30
+    query_timeout: t.Optional[int] = None
+    
+    # Connection pooling
+    pool_size: int = 5
+    pool_recycle: int = 3600  # Recycle connections after 1 hour
     
     type_: t.Literal["db2"] = Field(alias="type", default="db2")
     DIALECT: t.ClassVar[t.Literal["db2"]] = "db2"
@@ -2652,16 +2667,36 @@ class DB2ConnectionConfig(ConnectionConfig):
     def _connection_factory(self) -> t.Callable:
         import ibm_db_dbi
         
+        # Capture connection options
+        ssl = self.ssl
+        ssl_cert = self.ssl_cert
+        ssl_key = self.ssl_key
+        ssl_ca = self.ssl_ca
+        connect_timeout = self.connect_timeout
+        
         def connect_db2(**kwargs: t.Any) -> t.Any:
             # Build DB2 connection string
-            conn_str = (
-                f"DATABASE={kwargs['database']};"
-                f"HOSTNAME={kwargs['host']};"
-                f"PORT={kwargs['port']};"
-                f"PROTOCOL=TCPIP;"
-                f"UID={kwargs['username']};"
-                f"PWD={kwargs['password']};"
-            )
+            conn_str_parts = [
+                f"DATABASE={kwargs['database']}",
+                f"HOSTNAME={kwargs['host']}",
+                f"PORT={kwargs['port']}",
+                f"PROTOCOL=TCPIP",
+                f"UID={kwargs['username']}",
+                f"PWD={kwargs['password']}",
+                f"CONNECTTIMEOUT={connect_timeout}",
+            ]
+            
+            # Add SSL/TLS options if enabled
+            if ssl:
+                conn_str_parts.append("SECURITY=SSL")
+                if ssl_cert:
+                    conn_str_parts.append(f"SSLClientCertificate={ssl_cert}")
+                if ssl_key:
+                    conn_str_parts.append(f"SSLClientKey={ssl_key}")
+                if ssl_ca:
+                    conn_str_parts.append(f"SSLServerCertificate={ssl_ca}")
+            
+            conn_str = ";".join(conn_str_parts) + ";"
             return ibm_db_dbi.connect(conn_str, "", "")
         
         return connect_db2

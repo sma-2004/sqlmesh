@@ -1116,10 +1116,15 @@ def extend_sqlglot() -> None:
         # Athena picks a different Tokenizer / Parser / Generator depending on the query
         # so this ensures that the extra ones it defines are also extended
         if dialect == athena.Athena:
-            tokenizers.add(athena._TrinoTokenizer)
-            parsers.add(AthenaTrinoParser)
-            generators.add(athena_generators.AthenaTrinoGenerator)
-            generators.add(athena_generators._HiveGenerator)
+            # Handle both old and new sqlglot versions
+            if hasattr(athena, '_TrinoTokenizer'):
+                tokenizers.add(athena._TrinoTokenizer)
+            if hasattr(athena, '_TrinoParser'):
+                parsers.add(athena._TrinoParser)
+            if hasattr(athena, '_TrinoGenerator'):
+                generators.add(athena._TrinoGenerator)
+            if hasattr(athena, '_HiveGenerator'):
+                generators.add(athena._HiveGenerator)
 
         if hasattr(dialect, "Tokenizer"):
             tokenizers.add(dialect.Tokenizer)

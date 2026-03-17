@@ -44,6 +44,36 @@ if t.TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# DB2 SQL Error Codes
+class DB2ErrorCodes:
+    """Common DB2 SQL error codes for better error handling."""
+    OBJECT_NOT_FOUND = "SQL0204N"  # Table/view does not exist
+    COLUMN_NOT_FOUND = "SQL0205N"  # Column does not exist
+    DUPLICATE_OBJECT = "SQL0601N"  # Object already exists
+    INDEX_EXISTS = "SQL0605W"  # Index already defined
+    SCHEMA_NOT_EMPTY = "SQL0478N"  # Schema contains objects
+    INVALID_IDENTIFIER = "SQL0104N"  # Invalid token
+    AUTHORIZATION_ERROR = "SQL0551N"  # Authorization failure
+    CONNECTION_ERROR = "SQL30081N"  # Connection failed
+    DEADLOCK = "SQL0911N"  # Deadlock or timeout
+    LOCK_TIMEOUT = "SQL0913N"  # Lock timeout
+
+
+def is_db2_error(exception: Exception, error_code: str) -> bool:
+    """
+    Check if an exception is a specific DB2 error.
+    
+    Args:
+        exception: The exception to check
+        error_code: The DB2 error code to match (e.g., "SQL0204N")
+        
+    Returns:
+        True if the exception matches the error code
+    """
+    error_msg = str(exception)
+    return error_code in error_msg
+
+
 @set_catalog()
 class DB2EngineAdapter(
     PandasNativeFetchDFSupportMixin,
@@ -66,6 +96,7 @@ class DB2EngineAdapter(
     SUPPORTS_TRANSACTIONS = True
     SUPPORTS_INDEXES = True
     SUPPORTS_REPLACE_TABLE = False  # DB2 doesn't have REPLACE
+    SUPPORTS_GRANTS = True  # DB2 supports GRANT/REVOKE
     CATALOG_SUPPORT = CatalogSupport.SINGLE_CATALOG_ONLY
     COMMENT_CREATION_TABLE = CommentCreationTable.COMMENT_COMMAND_ONLY
     COMMENT_CREATION_VIEW = CommentCreationView.COMMENT_COMMAND_ONLY
@@ -75,6 +106,28 @@ class DB2EngineAdapter(
     MAX_IDENTIFIER_LENGTH: t.Optional[int] = 128
     # DB2 requires FROM clause for CURRENT SERVER
     CURRENT_CATALOG_EXPRESSION = exp.column("CURRENT SERVER")
+    SCHEMA_DIFFER_KWARGS = {
+        "parameterized_type_defaults": {
+            # DECIMAL without precision defaults to (5, 0)
+            exp.DataType.build("DECIMAL", dialect=DIALECT).this: [(5, 0), (0,)],
+            # CHAR without length defaults to 1
+            exp.DataType.build("CHAR", dialect=DIALECT).this: [(1,)],
+            # VARCHAR without length defaults to 1
+            exp.DataType.build("VARCHAR", dialect=DIALECT).this: [(1,)],
+            # TIMESTAMP defaults to 6 digits of fractional seconds
+            exp.DataType.build("TIMESTAMP", dialect=DIALECT).this: [(6,)],
+            # TIME defaults to 0 digits of fractional seconds
+            exp.DataType.build("TIME", dialect=DIALECT).this: [(0,)],
+        },
+        "types_with_unlimited_length": {
+            # CLOB can be used for unlimited text
+            exp.DataType.build("CLOB", dialect=DIALECT).this: {
+                exp.DataType.build("VARCHAR", dialect=DIALECT).this,
+                exp.DataType.build("CHAR", dialect=DIALECT).this,
+            },
+        },
+        "drop_cascade": False,  # DB2 requires explicit CASCADE keyword
+    }
     
     # DB2 System Schemas (to exclude from operations)
     SYSTEM_SCHEMAS = {
@@ -293,22 +346,43 @@ class DB2EngineAdapter(
         """
         db2_type = db2_type.upper()
         
+        # Comprehensive DB2 type mapping
         type_mapping = {
+            # Numeric types
             "INTEGER": "INT",
+            "INT": "INT",
             "BIGINT": "BIGINT",
             "SMALLINT": "SMALLINT",
             "DOUBLE": "DOUBLE",
             "REAL": "REAL",
+            "FLOAT": "DOUBLE",
             "DECIMAL": f"DECIMAL({length},{scale})",
             "NUMERIC": f"DECIMAL({length},{scale})",
+            "DECFLOAT": "DOUBLE",  # Map to DOUBLE for compatibility
+            
+            # Character types
             "VARCHAR": f"VARCHAR({length})",
             "CHAR": f"CHAR({length})",
             "CHARACTER": f"CHAR({length})",
+            "CLOB": "CLOB",
+            "GRAPHIC": f"CHAR({length})",  # Fixed-length graphic string
+            "VARGRAPHIC": f"VARCHAR({length})",  # Variable-length graphic string
+            "DBCLOB": "CLOB",  # Double-byte CLOB
+            
+            # Date/Time types
             "DATE": "DATE",
             "TIMESTAMP": "TIMESTAMP",
             "TIME": "TIME",
+            
+            # Binary types
             "BLOB": "BLOB",
-            "CLOB": "CLOB",
+            "BINARY": f"BINARY({length})",
+            "VARBINARY": f"VARBINARY({length})",
+            
+            # Special types
+            "XML": "TEXT",  # Map XML to TEXT for compatibility
+            "ROWID": "VARCHAR(40)",  # ROWID is typically 40 bytes
+            "BOOLEAN": "BOOLEAN",
         }
         
         sqlglot_type = type_mapping.get(db2_type, f"VARCHAR({length})")
@@ -323,9 +397,8 @@ class DB2EngineAdapter(
         """
         Check if table exists in DB2 using SYSCAT.TABLES.
         
-        DB2 stores identifiers differently based on quoting:
-        - Unquoted identifiers: stored as UPPERCASE
-        - Quoted identifiers (with underscores): stored as lowercase (case-preserved)
+        DB2 stores identifiers in the case they were created (quoted or unquoted).
+        We query the system catalog with case-insensitive matching to find the actual case.
         
         Args:
             table_name: The table to check
@@ -343,37 +416,29 @@ class DB2EngineAdapter(
         schema_name = table.db or self._get_current_schema()
         table_name_str = table.alias_or_name
         
-        # DB2 case handling:
-        # - Names with underscores are quoted and stored in lowercase
-        # - Names without underscores are unquoted and stored in UPPERCASE
-        if "_" in schema_name:
-            schema_name_normalized = schema_name.lower()
-        else:
-            schema_name_normalized = schema_name.upper()
-            
-        if "_" in table_name_str:
-            table_name_normalized = table_name_str.lower()
-        else:
-            table_name_normalized = table_name_str.upper()
-        
-        # Query DB2's SYSCAT.TABLES
-        sql = exp.select("1").from_("SYSCAT.TABLES").where(
+        # Query DB2's SYSCAT.TABLES with case-insensitive matching
+        # Use UPPER() function for case-insensitive comparison
+        sql = exp.select(
+            exp.column("TABSCHEMA"),
+            exp.column("TABNAME")
+        ).from_("SYSCAT.TABLES").where(
             exp.and_(
-                exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name_normalized)),
-                exp.column("TABNAME").eq(exp.Literal.string(table_name_normalized)),
+                exp.func("UPPER", exp.column("TABSCHEMA")).eq(exp.Literal.string(schema_name.upper())),
+                exp.func("UPPER", exp.column("TABNAME")).eq(exp.Literal.string(table_name_str.upper())),
             )
         )
         
         self.execute(sql)
         result = self.cursor.fetchone()
         
-        exists = result[0] == 1 if result is not None else False
+        exists = result is not None
         
-        # Update cache
+        # Update cache with actual case from DB2
         if exists:
+            actual_schema, actual_table = result
             self._data_object_cache[data_object_cache_key] = DataObject(
-                name=table_name_str,
-                schema=schema_name,
+                name=actual_table,
+                schema=actual_schema,
                 type=DataObjectType.TABLE,
             )
         
