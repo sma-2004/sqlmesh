@@ -53,6 +53,9 @@ RECOMMENDED_STATE_SYNC_ENGINES = {
     "mssql",
     "azuresql",
 }
+# Note: DB2 is excluded because it doesn't allow table names starting with underscore (_)
+# which SQLMesh uses for state tables (_versions, _snapshots, _environments, _intervals).
+# Use a separate state_connection (e.g., DuckDB) for DB2 gateways.
 FORBIDDEN_STATE_SYNC_ENGINES = {
     # Do not support row-level operations
     "spark",
@@ -2610,6 +2613,7 @@ class DB2ConnectionConfig(ConnectionConfig):
         host: The DB2 server hostname or IP address.
         port: The DB2 server port (default: 50000).
         database: The DB2 database name.
+        db2_schema: The DB2 schema name (required).
         username: The DB2 username.
         password: The DB2 password.
         concurrent_tasks: The maximum number of tasks that can use this connection concurrently.
@@ -2620,6 +2624,7 @@ class DB2ConnectionConfig(ConnectionConfig):
     host: str
     port: int = 50000
     database: str
+    db2_schema: str
     username: str
     password: str
     
@@ -2655,6 +2660,7 @@ class DB2ConnectionConfig(ConnectionConfig):
             "host",
             "port",
             "database",
+            "db2_schema",
             "username",
             "password",
         }
@@ -2662,6 +2668,20 @@ class DB2ConnectionConfig(ConnectionConfig):
     @property
     def _engine_adapter(self) -> t.Type[EngineAdapter]:
         return engine_adapter.DB2EngineAdapter
+    
+    def get_catalog(self) -> t.Optional[str]:
+        """Return uppercase catalog name to match sqlglot's DB2 dialect behavior."""
+        catalog = super().get_catalog()
+        return catalog.upper() if catalog else None
+    
+    @property
+    def _extra_engine_config(self) -> t.Dict[str, t.Any]:
+        """Configure SQL generation to not normalize (uppercase) identifiers for DB2."""
+        return {
+            "sql_gen_kwargs": {
+                "normalize": False,  # Don't uppercase identifiers
+            }
+        }
     
     @property
     def _connection_factory(self) -> t.Callable:
@@ -2683,6 +2703,7 @@ class DB2ConnectionConfig(ConnectionConfig):
                 f"PROTOCOL=TCPIP",
                 f"UID={kwargs['username']}",
                 f"PWD={kwargs['password']}",
+                f"CURRENTSCHEMA={kwargs['db2_schema']}",
                 f"CONNECTTIMEOUT={connect_timeout}",
             ]
             

@@ -44,9 +44,9 @@ if t.TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# DB2 SQL Error Codes
+# Db2 SQL Error Codes
 class DB2ErrorCodes:
-    """Common DB2 SQL error codes for better error handling."""
+    """Common Db2 SQL error codes for better error handling."""
     OBJECT_NOT_FOUND = "SQL0204N"  # Table/view does not exist
     COLUMN_NOT_FOUND = "SQL0205N"  # Column does not exist
     DUPLICATE_OBJECT = "SQL0601N"  # Object already exists
@@ -54,6 +54,7 @@ class DB2ErrorCodes:
     SCHEMA_NOT_EMPTY = "SQL0478N"  # Schema contains objects
     INVALID_IDENTIFIER = "SQL0104N"  # Invalid token
     AUTHORIZATION_ERROR = "SQL0551N"  # Authorization failure
+    CREATE_SCHEMA_PRIVILEGE = "SQL0552N"  # No privilege to create schema
     CONNECTION_ERROR = "SQL30081N"  # Connection failed
     DEADLOCK = "SQL0911N"  # Deadlock or timeout
     LOCK_TIMEOUT = "SQL0913N"  # Lock timeout
@@ -139,10 +140,11 @@ class DB2EngineAdapter(
         """
         Returns the catalog name of the current connection.
         DB2 requires FROM SYSIBM.SYSDUMMY1 for special registers.
+        Returns uppercase to match sqlglot's Db2 dialect behavior.
         """
         result = self.fetchone("SELECT CURRENT SERVER FROM SYSIBM.SYSDUMMY1")
         if result:
-            return result[0]
+            return result[0].upper() if result[0] else None
         return None
     
     def _build_schema_exp(
@@ -428,21 +430,30 @@ class DB2EngineAdapter(
             )
         )
         
-        self.execute(sql)
-        result = self.cursor.fetchone()
-        
-        exists = result is not None
-        
-        # Update cache with actual case from DB2
-        if exists:
-            actual_schema, actual_table = result
-            self._data_object_cache[data_object_cache_key] = DataObject(
-                name=actual_table,
-                schema=actual_schema,
-                type=DataObjectType.TABLE,
+        try:
+            self.execute(sql)
+            result = self.cursor.fetchone()
+            
+            exists = result is not None
+            
+            # Update cache with actual case from DB2
+            if exists:
+                actual_schema, actual_table = result
+                self._data_object_cache[data_object_cache_key] = DataObject(
+                    name=actual_table,
+                    schema=actual_schema,
+                    type=DataObjectType.TABLE,
+                )
+            
+            return exists
+        except Exception as e:
+            # Handle DB2 deadlock/timeout errors (SQL0911N) and other exceptions
+            # If we get an error checking if table exists, assume it doesn't exist
+            # This allows the operation to proceed and potentially succeed
+            logger.warning(
+                f"Error checking if table {table} exists: {e}. Assuming table does not exist."
             )
-        
-        return exists
+            return False
     def _build_create_table_exp(
         self,
         table_name_or_schema: t.Union[exp.Schema, TableName],
@@ -867,24 +878,39 @@ class DB2EngineAdapter(
             ignore_if_exists: If True, don't error if schema exists
         """
         schema = to_schema(schema_name)
-        schema_name_str = schema.db.upper()
+        schema_name_str = schema.db
         
         if ignore_if_exists:
-            # Check if schema exists
-            check_sql = exp.select("1").from_("SYSCAT.SCHEMATA").where(
-                exp.column("SCHEMANAME").eq(exp.Literal.string(schema_name_str))
-            )
-            self.execute(check_sql)
-            if self.cursor.fetchone():
-                logger.debug(f"Schema {schema_name_str} already exists")
-                return
+            # Check if schema exists (case-insensitive) - DB2 stores schema names in uppercase
+            # Check both the provided case and uppercase version
+            check_sql = f"""
+                SELECT 1 FROM SYSCAT.SCHEMATA
+                WHERE UPPER(SCHEMANAME) = UPPER('{schema_name_str}')
+            """
+            try:
+                result = self.fetchone(check_sql)
+                if result:
+                    logger.debug(f"Schema {schema_name_str} already exists (case-insensitive match)")
+                    return
+            except Exception as e:
+                logger.warning(f"Error checking schema existence: {e}")
+                # Continue to try creating the schema
         
-        # Create schema using sqlglot
+        # Create schema - DB2 will uppercase it automatically
         create_sql = exp.Create(
             this=exp.Schema(this=exp.to_identifier(schema_name_str)),
             kind="SCHEMA",
         )
-        self.execute(create_sql)
+        try:
+            self.execute(create_sql)
+        except Exception as e:
+            # Only ignore if schema already exists (duplicate object error)
+            # Do NOT ignore privilege errors - let them propagate
+            if ignore_if_exists and is_db2_error(e, DB2ErrorCodes.DUPLICATE_OBJECT):
+                logger.debug(f"Schema {schema_name_str} already exists (caught during creation)")
+                return
+            # Re-raise all other errors including privilege errors
+            raise
     
     def drop_schema(
         self,
