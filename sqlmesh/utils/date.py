@@ -289,6 +289,12 @@ def is_date(obj: TimeLike) -> bool:
     """Checks if a TimeLike object should be treated like a date."""
     if isinstance(obj, date) and not isinstance(obj, datetime):
         return True
+    
+    # Check if it's a datetime with all time components set to zero (midnight)
+    # This should be treated as a categorical date for make_inclusive logic
+    if isinstance(obj, datetime):
+        if obj.hour == 0 and obj.minute == 0 and obj.second == 0 and obj.microsecond == 0:
+            return True
 
     try:
         time.strptime(str(obj).replace("-", ""), DATE_INT_FMT)
@@ -338,7 +344,7 @@ def make_inclusive_end(end: TimeLike, dialect: t.Optional[DialectType] = "") -> 
 
 def make_exclusive(time: TimeLike) -> datetime:
     dt = to_datetime(time)
-    if is_date(time):
+    if is_date(dt):  # Check the datetime object, not the original input
         dt = dt + timedelta(days=1)
     return dt
 
