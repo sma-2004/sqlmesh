@@ -2649,7 +2649,7 @@ class DB2ConnectionConfig(ConnectionConfig):
     
     type_: t.Literal["db2"] = Field(alias="type", default="db2")
     DIALECT: t.ClassVar[t.Literal["db2"]] = "db2"
-    DISPLAY_NAME: t.ClassVar[t.Literal["DB2"]] = "DB2"
+    DISPLAY_NAME: t.ClassVar[t.Literal["Db2"]] = "Db2"
     DISPLAY_ORDER: t.ClassVar[t.Literal[17]] = 17
     
     _engine_import_validator = _get_engine_import_validator("ibm_db", "db2")

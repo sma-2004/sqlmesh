@@ -540,54 +540,55 @@ class DB2EngineAdapter(
         else:
             table_name = table_name_or_schema
         
-        # CRITICAL FIX: Drop staging tables/views before creation
+        # CRITICAL FIX: Always drop staging tables/views before creation
         # SQLMesh staging objects have names like "sqlmesh__SCHEMA.TABLE__HASH"
         # These must always be dropped before recreation to avoid SQL0601N errors
         table = exp.to_table(table_name)
         table_name_str = str(table.name) if hasattr(table, 'name') else str(table_name)
         schema_name = table.db or self._get_current_schema()
         
-        if "sqlmesh__" in table_name_str.lower() or "sqlmesh__" in schema_name.lower():
-            # This is a staging object - try to drop both TABLE and VIEW
-            # Try multiple variations due to potential naming issues
-            drop_attempts = []
+        # Check if this is a staging object (contains sqlmesh__ or double underscore pattern)
+        is_staging = ("sqlmesh__" in table_name_str.lower() or
+                     "sqlmesh__" in schema_name.lower() or
+                     "__" in table_name_str)  # Double underscore indicates staging
+        
+        if is_staging:
+            # This is a staging object - ALWAYS drop it before creation
+            logger.info(f"Detected staging object: {schema_name}.{table_name_str}")
             
-            # Try both TABLE and VIEW for each format
-            for object_type in ['TABLE', 'VIEW']:
-                drop_attempts.extend([
-                    # Standard format: schema.table
-                    f'DROP {object_type} {self._to_sql(table)}',
-                    # Quoted format
-                    f'DROP {object_type} "{schema_name}"."{table_name_str}"',
-                    # Uppercase format (DB2 default)
-                    f'DROP {object_type} {schema_name.upper()}.{table_name_str.upper()}',
-                    # Lowercase format (for quoted identifiers with underscores)
-                    f'DROP {object_type} "{schema_name.lower()}"."{table_name_str.lower()}"',
-                ])
+            # Query SYSCAT to find actual table/view names (handles truncation)
+            # DB2 may truncate long names, so we search by prefix
+            search_prefix = table_name_str[:30].upper()  # Use first 30 chars as prefix
             
-            dropped = False
-            for drop_sql in drop_attempts:
+            for object_type, catalog_table in [('TABLE', 'SYSCAT.TABLES'), ('VIEW', 'SYSCAT.VIEWS')]:
                 try:
-                    logger.info(f"Staging object drop attempt: {drop_sql}")
-                    self.execute(drop_sql)
-                    logger.info(f"Successfully dropped staging object with: {drop_sql}")
-                    dropped = True
-                    # Clear cache after dropping
-                    data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, table.name)
-                    if data_object_cache_key in self._data_object_cache:
-                        del self._data_object_cache[data_object_cache_key]
-                    break
+                    # Find objects matching our prefix in the schema
+                    find_sql = f"""
+                        SELECT TABNAME FROM {catalog_table}
+                        WHERE UPPER(TABSCHEMA) = '{schema_name.upper()}'
+                        AND UPPER(TABNAME) LIKE '{search_prefix}%'
+                    """
+                    logger.debug(f"Searching for {object_type}s with prefix: {search_prefix}")
+                    self.execute(find_sql)
+                    results = self.cursor.fetchall()
+                    
+                    if results:
+                        for (actual_name,) in results:
+                            try:
+                                drop_sql = f'DROP {object_type} "{schema_name}"."{actual_name}"'
+                                logger.info(f"Dropping {object_type}: {schema_name}.{actual_name}")
+                                self.execute(drop_sql)
+                                logger.info(f"Successfully dropped {object_type}: {schema_name}.{actual_name}")
+                                # Clear cache
+                                data_object_cache_key = _get_data_object_cache_key(table.catalog, table.db, actual_name)
+                                if data_object_cache_key in self._data_object_cache:
+                                    del self._data_object_cache[data_object_cache_key]
+                            except Exception as drop_err:
+                                error_msg = str(drop_err)
+                                if 'SQL0204N' not in error_msg and 'SQL0205N' not in error_msg:
+                                    logger.warning(f"Failed to drop {object_type} {actual_name}: {drop_err}")
                 except Exception as e:
-                    error_msg = str(e)
-                    if 'SQL0204N' in error_msg or 'does not exist' in error_msg.lower() or 'SQL0205N' in error_msg:
-                        logger.debug(f"Object doesn't exist with format: {drop_sql}")
-                        continue
-                    else:
-                        logger.debug(f"Drop failed with: {drop_sql}, error: {e}")
-                        continue
-            
-            if not dropped:
-                logger.warning(f"Could not drop staging object {table_name} with any format - will try to create anyway")
+                    logger.debug(f"Error searching for {object_type}s: {e}")
         
         # For CREATE TABLE AS SELECT, we need to intercept and modify the SQL
         # to remove subquery aliases and ensure WITH DATA is present
