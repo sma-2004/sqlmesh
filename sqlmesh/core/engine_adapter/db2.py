@@ -290,6 +290,8 @@ class DB2EngineAdapter(
         """
         Fetches column names and types for the target table from DB2 system catalog.
         
+        Handles DB2's name truncation by using prefix matching when exact match fails.
+        
         Args:
             table_name: The table to get columns for
             include_pseudo_columns: Not used for DB2
@@ -299,10 +301,9 @@ class DB2EngineAdapter(
         """
         table = exp.to_table(table_name)
         schema_name = table.db or self._get_current_schema()
+        table_name_str = table.alias_or_name
         
-        # Query DB2's SYSCAT.COLUMNS system catalog
-        # Note: DB2 stores identifiers in the case they were created
-        # Don't force uppercase - use the actual case from the table name
+        # Try exact match first
         sql = exp.select(
             exp.column("COLNAME").as_("column_name"),
             exp.column("TYPENAME").as_("data_type"),
@@ -311,24 +312,65 @@ class DB2EngineAdapter(
         ).from_("SYSCAT.COLUMNS").where(
             exp.and_(
                 exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name)),
-                exp.column("TABNAME").eq(exp.Literal.string(table.alias_or_name)),
+                exp.column("TABNAME").eq(exp.Literal.string(table_name_str)),
             )
         ).order_by("COLNO")
         
         self.execute(sql)
         resp = self.cursor.fetchall()
         
+        # If exact match fails, try prefix matching (DB2 truncates long names)
         if not resp:
-            raise SQLMeshError(
-                f"Could not get columns for table '{table.sql(dialect=self.dialect)}'. Table not found."
+            logger.info(
+                f"Exact match failed for table '{schema_name}.{table_name_str}'. "
+                f"Trying prefix match (DB2 may have truncated the name)..."
             )
+            
+            # Use first 100 characters as prefix to be more specific
+            # DB2 truncates at 128 chars, so 100 should capture enough uniqueness
+            prefix = table_name_str[:100]
+            
+            # Query using LIKE with prefix
+            prefix_sql = exp.select(
+                exp.column("TABNAME"),
+                exp.column("COLNAME").as_("column_name"),
+                exp.column("TYPENAME").as_("data_type"),
+                exp.column("LENGTH").as_("length"),
+                exp.column("SCALE").as_("scale"),
+            ).from_("SYSCAT.COLUMNS").where(
+                exp.and_(
+                    exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name)),
+                    exp.column("TABNAME").like(exp.Literal.string(f"{prefix}%")),
+                )
+            ).order_by("TABNAME", "COLNO")
+            
+            self.execute(prefix_sql)
+            prefix_resp = self.cursor.fetchall()
+            
+            if not prefix_resp:
+                raise SQLMeshError(
+                    f"Could not get columns for table '{table.sql(dialect=self.dialect)}'. "
+                    f"Table not found (tried exact match and prefix '{prefix}%')."
+                )
+            
+            # Use the first matching table (most likely the one we want)
+            actual_table_name = prefix_resp[0][0]
+            logger.info(
+                f"Found table by prefix: '{schema_name}.{actual_table_name}' "
+                f"(searched for '{schema_name}.{table_name_str}')"
+            )
+            
+            # Extract columns from prefix results (skip first column which is TABNAME)
+            resp = [(row[1], row[2], row[3], row[4]) for row in prefix_resp]
         
         columns = {}
         for column_name, data_type, length, scale in resp:
             # Convert DB2 types to sqlglot DataType
-            # Keep column names in their original case from DB2
+            # DB2 stores unquoted identifiers in uppercase, but SQLMesh may use
+            # lowercase in model definitions. Normalize to uppercase for consistency.
             db2_type = self._db2_type_to_sqlglot(data_type, length, scale)
-            columns[column_name] = db2_type
+            # Use uppercase for column names to match DB2's behavior
+            columns[column_name.upper()] = db2_type
         
         return columns
     
@@ -558,7 +600,8 @@ class DB2EngineAdapter(
             
             # Query SYSCAT to find actual table/view names (handles truncation)
             # DB2 may truncate long names, so we search by prefix
-            search_prefix = table_name_str[:30].upper()  # Use first 30 chars as prefix
+            # Use 100 chars to be specific enough to distinguish similar table names
+            search_prefix = table_name_str[:100].upper()
             
             for object_type, catalog_table in [('TABLE', 'SYSCAT.TABLES'), ('VIEW', 'SYSCAT.VIEWS')]:
                 try:

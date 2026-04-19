@@ -2609,6 +2609,14 @@ _CONNECTION_CONFIG_EXCLUDE: t.Set[t.Type[ConnectionConfig]] = {
 class DB2ConnectionConfig(ConnectionConfig):
     """Configuration for IBM DB2 database connection.
     
+    Note: DB2 has a 128-character limit for table identifiers. For projects with long schema
+    or table names, it's recommended to use hash-based naming to avoid truncation issues.
+    Add this to your config.yaml:
+    
+        physical_table_naming_convention: hash_md5
+    
+    This will generate shorter table names like: sqlmesh_md5__3b07384d113edec49eaa6238ad5ff00d
+    
     Args:
         host: The DB2 server hostname or IP address.
         port: The DB2 server port (default: 50000).

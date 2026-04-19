@@ -14,7 +14,7 @@ import pytest
 from sqlglot import parse_one, exp
 from sqlglot.dialects import Dialects
 
-from sqlmesh.core.engine_adapter.db2_proper import DB2EngineAdapter
+from sqlmesh.core.engine_adapter.db2 import DB2EngineAdapter
 
 
 pytestmark = [pytest.mark.engine, pytest.mark.db2, pytest.mark.integration]

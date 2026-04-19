@@ -7,7 +7,7 @@ from pytest_mock.plugin import MockerFixture
 from sqlglot import expressions as exp
 from sqlglot import parse_one
 
-from sqlmesh.core.engine_adapter.db2_proper import DB2EngineAdapter
+from sqlmesh.core.engine_adapter.db2 import DB2EngineAdapter
 from sqlmesh.core.engine_adapter.shared import DataObject, DataObjectType
 from sqlmesh.utils.errors import SQLMeshError
 from tests.core.engine_adapter import to_sql_calls

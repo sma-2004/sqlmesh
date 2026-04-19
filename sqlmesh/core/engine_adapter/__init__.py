@@ -21,7 +21,7 @@ from sqlmesh.core.engine_adapter.trino import TrinoEngineAdapter
 from sqlmesh.core.engine_adapter.athena import AthenaEngineAdapter
 from sqlmesh.core.engine_adapter.risingwave import RisingwaveEngineAdapter
 from sqlmesh.core.engine_adapter.fabric import FabricEngineAdapter
-from sqlmesh.core.engine_adapter.db2_proper import DB2EngineAdapter
+from sqlmesh.core.engine_adapter.db2 import DB2EngineAdapter
 
 DIALECT_TO_ENGINE_ADAPTER = {
     "hive": SparkEngineAdapter,
