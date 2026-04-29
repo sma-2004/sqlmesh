@@ -7,7 +7,7 @@ from pytest_mock.plugin import MockerFixture
 from sqlglot import expressions as exp
 from sqlglot import parse_one
 
-from sqlmesh.core.engine_adapter.db2 import DB2EngineAdapter
+from sqlmesh.core.engine_adapter.db2 import Db2EngineAdapter
 from sqlmesh.core.engine_adapter.shared import DataObject, DataObjectType
 from sqlmesh.utils.errors import SQLMeshError
 from tests.core.engine_adapter import to_sql_calls
@@ -16,11 +16,11 @@ pytestmark = [pytest.mark.engine, pytest.mark.db2]
 
 
 @pytest.fixture
-def adapter(make_mocked_engine_adapter: t.Callable) -> DB2EngineAdapter:
-    return make_mocked_engine_adapter(DB2EngineAdapter)
+def adapter(make_mocked_engine_adapter: t.Callable) -> Db2EngineAdapter:
+    return make_mocked_engine_adapter(Db2EngineAdapter)
 
 
-def test_columns(adapter: DB2EngineAdapter):
+def test_columns(adapter: Db2EngineAdapter):
     """Test column type mapping from DB2 system catalog."""
     adapter.cursor.fetchall.return_value = [
         ("id", "INTEGER", 4, 0),
@@ -51,9 +51,9 @@ def test_columns(adapter: DB2EngineAdapter):
     }
 
 
-def test_table_exists_case_insensitive(adapter: DB2EngineAdapter, mocker: MockerFixture):
+def test_table_exists_case_insensitive(adapter: Db2EngineAdapter, mocker: MockerFixture):
     """Test table existence check with case-insensitive matching."""
-    # Mock fetchone to return actual case from DB2
+    # Mock fetchone to return actual case from Db2
     adapter.cursor.fetchone.return_value = ("TEST_SCHEMA", "TEST_TABLE")
     
     # Check with lowercase input
@@ -66,7 +66,7 @@ def test_table_exists_case_insensitive(adapter: DB2EngineAdapter, mocker: Mocker
     assert "SYSCAT.TABLES" in executed_sql
 
 
-def test_table_exists_not_found(adapter: DB2EngineAdapter):
+def test_table_exists_not_found(adapter: Db2EngineAdapter):
     """Test table existence check when table doesn't exist."""
     adapter.cursor.fetchone.return_value = None
     
@@ -75,8 +75,8 @@ def test_table_exists_not_found(adapter: DB2EngineAdapter):
     assert result is False
 
 
-def test_create_index_without_if_not_exists(adapter: DB2EngineAdapter):
-    """Test index creation without IF NOT EXISTS (DB2 doesn't support it)."""
+def test_create_index_without_if_not_exists(adapter: Db2EngineAdapter):
+    """Test index creation without IF NOT EXISTS (Db2 doesn't support it)."""
     # Mock that index doesn't exist
     adapter.cursor.fetchone.return_value = (0,)
     
@@ -94,7 +94,7 @@ def test_create_index_without_if_not_exists(adapter: DB2EngineAdapter):
     assert "IF NOT EXISTS" not in create_sql
 
 
-def test_create_index_already_exists(adapter: DB2EngineAdapter):
+def test_create_index_already_exists(adapter: Db2EngineAdapter):
     """Test index creation when index already exists."""
     # Mock that index exists
     adapter.cursor.fetchone.return_value = (1,)
@@ -110,8 +110,8 @@ def test_create_index_already_exists(adapter: DB2EngineAdapter):
     assert all("CREATE INDEX" not in s for s in sql_calls)
 
 
-def test_create_table_primary_key_not_null(adapter: DB2EngineAdapter):
-    """Test that primary key columns get NOT NULL constraint in DB2."""
+def test_create_table_primary_key_not_null(adapter: Db2EngineAdapter):
+    """Test that primary key columns get NOT NULL constraint in Db2."""
     adapter.create_table(
         "test_table",
         {
@@ -129,8 +129,8 @@ def test_create_table_primary_key_not_null(adapter: DB2EngineAdapter):
     assert '"id" INT NOT NULL' in create_sql or "[id] INT NOT NULL" in create_sql
 
 
-def test_create_table_as_select_with_data(adapter: DB2EngineAdapter, mocker: MockerFixture):
-    """Test CTAS includes WITH DATA clause for DB2."""
+def test_create_table_as_select_with_data(adapter: Db2EngineAdapter, mocker: MockerFixture):
+    """Test CTAS includes WITH DATA clause for Db2."""
     mocker.patch.object(adapter, "table_exists", return_value=False)
     
     adapter.ctas(
@@ -148,7 +148,7 @@ def test_create_table_as_select_with_data(adapter: DB2EngineAdapter, mocker: Moc
     assert '"_subquery"' not in create_sql and "[_subquery]" not in create_sql
 
 
-def test_create_schema(adapter: DB2EngineAdapter):
+def test_create_schema(adapter: Db2EngineAdapter):
     """Test schema creation."""
     # Mock that schema doesn't exist
     adapter.cursor.fetchone.return_value = None
@@ -161,7 +161,7 @@ def test_create_schema(adapter: DB2EngineAdapter):
     assert any("CREATE SCHEMA" in s for s in sql_calls)
 
 
-def test_drop_schema_cascade(adapter: DB2EngineAdapter):
+def test_drop_schema_cascade(adapter: Db2EngineAdapter):
     """Test schema drop with cascade."""
     # Mock schema exists
     adapter.cursor.fetchone.return_value = (1,)
@@ -176,7 +176,7 @@ def test_drop_schema_cascade(adapter: DB2EngineAdapter):
     assert any("DROP SCHEMA" in s and "RESTRICT" in s for s in sql_calls)
 
 
-def test_create_view_replace(adapter: DB2EngineAdapter, mocker: MockerFixture):
+def test_create_view_replace(adapter: Db2EngineAdapter, mocker: MockerFixture):
     """Test view creation with replace drops old view first."""
     mocker.patch.object(adapter, "drop_view")
     
@@ -190,7 +190,7 @@ def test_create_view_replace(adapter: DB2EngineAdapter, mocker: MockerFixture):
     adapter.drop_view.assert_called_once()
 
 
-def test_merge_with_simple_aliases(adapter: DB2EngineAdapter):
+def test_merge_with_simple_aliases(adapter: Db2EngineAdapter):
     """Test MERGE uses simple aliases (TARGET/SOURCE) instead of double underscores."""
     adapter.merge(
         target_table="target_table",
@@ -213,7 +213,7 @@ def test_merge_with_simple_aliases(adapter: DB2EngineAdapter):
     assert "__MERGE_SOURCE__" not in merge_sql
 
 
-def test_get_current_catalog(adapter: DB2EngineAdapter):
+def test_get_current_catalog(adapter: Db2EngineAdapter):
     """Test getting current catalog uses CURRENT SERVER."""
     adapter.cursor.fetchone.return_value = ("TESTDB",)
     
@@ -225,7 +225,7 @@ def test_get_current_catalog(adapter: DB2EngineAdapter):
     assert any("CURRENT SERVER" in s and "SYSIBM.SYSDUMMY1" in s for s in sql_calls)
 
 
-def test_get_current_schema(adapter: DB2EngineAdapter):
+def test_get_current_schema(adapter: Db2EngineAdapter):
     """Test getting current schema."""
     adapter.cursor.fetchone.return_value = ("TESTSCHEMA",)
     
@@ -237,21 +237,21 @@ def test_get_current_schema(adapter: DB2EngineAdapter):
     assert any("CURRENT SCHEMA" in s and "SYSIBM.SYSDUMMY1" in s for s in sql_calls)
 
 
-def test_server_version(adapter: DB2EngineAdapter, mocker: MockerFixture):
+def test_server_version(adapter: Db2EngineAdapter, mocker: MockerFixture):
     """Test server version parsing."""
     fetchone_mock = mocker.patch.object(adapter, "fetchone")
     
-    # Test DB2 11.5
-    fetchone_mock.return_value = ("DB2 v11.5.0.0",)
+    # Test Db2 11.5
+    fetchone_mock.return_value = ("Db2 v11.5.0.0",)
     assert adapter.server_version == (11, 5)
     
-    # Test DB2 12.1
+    # Test Db2 12.1
     del adapter.server_version
-    fetchone_mock.return_value = ("DB2 v12.1.0.0",)
+    fetchone_mock.return_value = ("Db2 v12.1.0.0",)
     assert adapter.server_version == (12, 1)
 
 
-def test_type_mapping_comprehensive(adapter: DB2EngineAdapter):
+def test_type_mapping_comprehensive(adapter: Db2EngineAdapter):
     """Test comprehensive type mapping including new types."""
     test_types = [
         ("DECFLOAT", 16, 0, "DOUBLE"),
@@ -268,7 +268,7 @@ def test_type_mapping_comprehensive(adapter: DB2EngineAdapter):
         assert result.sql(dialect="db2") == expected
 
 
-def test_staging_table_drop_before_create(adapter: DB2EngineAdapter, mocker: MockerFixture):
+def test_staging_table_drop_before_create(adapter: Db2EngineAdapter, mocker: MockerFixture):
     """Test that staging tables are dropped before creation."""
     mocker.patch.object(adapter, "table_exists", return_value=False)
     
@@ -284,7 +284,7 @@ def test_staging_table_drop_before_create(adapter: DB2EngineAdapter, mocker: Moc
     assert any("DROP" in s for s in sql_calls)
 
 
-def test_comments_on_table(adapter: DB2EngineAdapter):
+def test_comments_on_table(adapter: Db2EngineAdapter):
     """Test table and column comments use COMMENT command."""
     adapter.create_table(
         "test_table",
@@ -305,15 +305,15 @@ def test_comments_on_table(adapter: DB2EngineAdapter):
     assert any("COMMENT ON COLUMN" in s and "User name" in s for s in sql_calls)
 
 
-def test_catalog_support(adapter: DB2EngineAdapter):
-    """Test that DB2 only supports single catalog."""
+def test_catalog_support(adapter: Db2EngineAdapter):
+    """Test that Db2 only supports single catalog."""
     from sqlmesh.core.engine_adapter.shared import CatalogSupport
     
     assert adapter.catalog_support == CatalogSupport.SINGLE_CATALOG_ONLY
 
 
-def test_create_table_like(adapter: DB2EngineAdapter):
-    """Test CREATE TABLE LIKE for DB2."""
+def test_create_table_like(adapter: Db2EngineAdapter):
+    """Test CREATE TABLE LIKE for Db2."""
     adapter._create_table_like(
         target_table_name="target_table",
         source_table_name="source_table",
@@ -328,7 +328,7 @@ def test_create_table_like(adapter: DB2EngineAdapter):
     assert "source_table" in create_sql
 
 
-def test_drop_view_staging(adapter: DB2EngineAdapter):
+def test_drop_view_staging(adapter: Db2EngineAdapter):
     """Test dropping staging views tries multiple formats."""
     # Mock that view doesn't exist in any format
     adapter.cursor.execute.side_effect = Exception("SQL0204N")

@@ -20,7 +20,7 @@ import pytest
 from sqlglot import parse_one, exp
 
 from sqlmesh.core.engine_adapter import create_engine_adapter
-from sqlmesh.core.config.connection import DB2ConnectionConfig
+from sqlmesh.core.config.connection import Db2ConnectionConfig
 
 
 pytestmark = [
@@ -36,7 +36,7 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def db2_config():
     """Create DB2 connection config from environment variables."""
-    return DB2ConnectionConfig(
+    return Db2ConnectionConfig(
         host=os.getenv("DB2_HOST", "localhost"),
         port=int(os.getenv("DB2_PORT", "50000")),
         database=os.getenv("DB2_DATABASE", "TESTDB"),

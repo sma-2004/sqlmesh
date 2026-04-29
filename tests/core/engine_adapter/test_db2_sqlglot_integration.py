@@ -1,12 +1,12 @@
 # type: ignore
 """
-Integration tests for DB2 adapter with custom sqlglot DB2 dialect.
+Integration tests for Db2 adapter with custom sqlglot Db2 dialect.
 
-These tests verify that the custom sqlglot DB2 dialect (provided as .whl)
-works correctly with the DB2 engine adapter.
+These tests verify that the custom sqlglot Db2 dialect (provided as .whl)
+works correctly with the Db2 engine adapter.
 
 Prerequisites:
-    - Custom sqlglot with DB2 dialect installed
+    - Custom sqlglot with Db2 dialect installed
     - ibm_db and ibm_db_dbi packages installed
 """
 
@@ -14,20 +14,20 @@ import pytest
 from sqlglot import parse_one, exp
 from sqlglot.dialects import Dialects
 
-from sqlmesh.core.engine_adapter.db2 import DB2EngineAdapter
+from sqlmesh.core.engine_adapter.db2 import Db2EngineAdapter
 
 
 pytestmark = [pytest.mark.engine, pytest.mark.db2, pytest.mark.integration]
 
 
 def test_db2_dialect_available():
-    """Verify that DB2 dialect is available in sqlglot."""
+    """Verify that Db2 dialect is available in sqlglot."""
     # Check if db2 is in available dialects
     assert "db2" in [d.value for d in Dialects]
     
 
 def test_db2_parse_select():
-    """Test parsing basic SELECT with DB2 dialect."""
+    """Test parsing basic SELECT with Db2 dialect."""
     sql = "SELECT * FROM SYSIBM.SYSDUMMY1"
     parsed = parse_one(sql, dialect="db2")
     
@@ -47,7 +47,7 @@ def test_db2_parse_current_server():
 
 
 def test_db2_parse_create_table():
-    """Test parsing CREATE TABLE with DB2 syntax."""
+    """Test parsing CREATE TABLE with Db2 syntax."""
     sql = """
     CREATE TABLE test_table (
         id INTEGER NOT NULL,
@@ -158,8 +158,8 @@ def test_db2_data_types():
 
 
 def test_db2_adapter_uses_correct_dialect(make_mocked_engine_adapter):
-    """Test that DB2 adapter uses db2 dialect."""
-    adapter = make_mocked_engine_adapter(DB2EngineAdapter)
+    """Test that Db2 adapter uses db2 dialect."""
+    adapter = make_mocked_engine_adapter(Db2EngineAdapter)
     
     assert adapter.DIALECT == "db2"
     assert adapter.dialect == "db2"
@@ -167,20 +167,20 @@ def test_db2_adapter_uses_correct_dialect(make_mocked_engine_adapter):
 
 def test_db2_adapter_sql_generation(make_mocked_engine_adapter):
     """Test SQL generation through adapter."""
-    adapter = make_mocked_engine_adapter(DB2EngineAdapter)
+    adapter = make_mocked_engine_adapter(Db2EngineAdapter)
     
     # Test table creation
     table_exp = exp.to_table("test_schema.test_table")
     sql = adapter._to_sql(table_exp)
     
-    # Should be properly quoted for DB2
+    # Should be properly quoted for Db2
     assert "test_schema" in sql
     assert "test_table" in sql
 
 
 def test_db2_system_catalog_queries(make_mocked_engine_adapter):
-    """Test that system catalog queries use correct DB2 syntax."""
-    adapter = make_mocked_engine_adapter(DB2EngineAdapter)
+    """Test that system catalog queries use correct Db2 syntax."""
+    adapter = make_mocked_engine_adapter(Db2EngineAdapter)
     
     # Mock columns query
     adapter.cursor.fetchall.return_value = [
@@ -202,7 +202,7 @@ def test_db2_system_catalog_queries(make_mocked_engine_adapter):
 
 def test_db2_case_insensitive_matching(make_mocked_engine_adapter):
     """Test case-insensitive table existence check."""
-    adapter = make_mocked_engine_adapter(DB2EngineAdapter)
+    adapter = make_mocked_engine_adapter(Db2EngineAdapter)
     
     # Mock table exists with actual case
     adapter.cursor.fetchone.return_value = ("TEST_SCHEMA", "TEST_TABLE")
@@ -219,7 +219,7 @@ def test_db2_case_insensitive_matching(make_mocked_engine_adapter):
 
 def test_db2_identifier_quoting(make_mocked_engine_adapter):
     """Test identifier quoting for special characters."""
-    adapter = make_mocked_engine_adapter(DB2EngineAdapter)
+    adapter = make_mocked_engine_adapter(Db2EngineAdapter)
     
     # Table with underscores (should be quoted)
     table_exp = exp.to_table("sqlmesh__test_table")
@@ -273,13 +273,13 @@ def test_real_db2_connection():
 
 
 def test_db2_dialect_version_compatibility():
-    """Test that sqlglot DB2 dialect version is compatible."""
+    """Test that sqlglot Db2 dialect version is compatible."""
     import sqlglot
     
     # Verify sqlglot version
     version = sqlglot.__version__
     print(f"sqlglot version: {version}")
     
-    # Verify DB2 dialect is available
+    # Verify Db2 dialect is available
     assert hasattr(Dialects, "DB2") or "db2" in [d.value for d in Dialects]
 

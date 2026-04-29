@@ -1,15 +1,15 @@
 """
-IBM DB2 Engine Adapter for SQLMesh
+IBM Db2 Engine Adapter for SQLMesh
 
-This module provides DB2 database support for SQLMesh by implementing
+This module provides Db2 database support for SQLMesh by implementing
 the EngineAdapter interface following SQLMesh's architecture patterns.
 
 Supports:
-- DB2 for Linux, UNIX, and Windows (LUW)
-- DB2 for z/OS
-- DB2 for i (AS/400)
+- Db2 for Linux, UNIX, and Windows (LUW)
+- Db2 for z/OS
+- Db2 for i (AS/400)
 
-Author: SQLMesh DB2 Integration Team
+Author: SQLMesh Db2 Integration Team
 License: Apache 2.0
 """
 
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 # Db2 SQL Error Codes
-class DB2ErrorCodes:
+class Db2ErrorCodes:
     """Common Db2 SQL error codes for better error handling."""
     OBJECT_NOT_FOUND = "SQL0204N"  # Table/view does not exist
     COLUMN_NOT_FOUND = "SQL0205N"  # Column does not exist
@@ -62,11 +62,11 @@ class DB2ErrorCodes:
 
 def is_db2_error(exception: Exception, error_code: str) -> bool:
     """
-    Check if an exception is a specific DB2 error.
+    Check if an exception is a specific Db2 error.
     
     Args:
         exception: The exception to check
-        error_code: The DB2 error code to match (e.g., "SQL0204N")
+        error_code: The Db2 error code to match (e.g., "SQL0204N")
         
     Returns:
         True if the exception matches the error code
@@ -76,28 +76,28 @@ def is_db2_error(exception: Exception, error_code: str) -> bool:
 
 
 @set_catalog()
-class DB2EngineAdapter(
+class Db2EngineAdapter(
     PandasNativeFetchDFSupportMixin,
     GetCurrentCatalogFromFunctionMixin,
     EngineAdapter,
 ):
     """
-    Engine adapter for IBM DB2 databases.
+    Engine adapter for IBM Db2 databases.
     
-    This adapter enables SQLMesh to work with DB2 by implementing
+    This adapter enables SQLMesh to work with Db2 by implementing
     the EngineAdapter interface using sqlglot for SQL generation
-    and DB2-specific system catalog queries.
+    and Db2-specific system catalog queries.
     
-    Uses native DB2 dialect from sqlglot for proper SQL generation.
+    Uses native Db2 dialect from sqlglot for proper SQL generation.
     """
     
     # Adapter Configuration
-    DIALECT = "db2"  # Use native DB2 dialect for SQL generation
+    DIALECT = "db2"  # Use native Db2 dialect for SQL generation
     DEFAULT_BATCH_SIZE = 400
     SUPPORTS_TRANSACTIONS = True
     SUPPORTS_INDEXES = True
-    SUPPORTS_REPLACE_TABLE = False  # DB2 doesn't have REPLACE
-    SUPPORTS_GRANTS = True  # DB2 supports GRANT/REVOKE
+    SUPPORTS_REPLACE_TABLE = False  # Db2 doesn't have REPLACE
+    SUPPORTS_GRANTS = True  # Db2 supports GRANT/REVOKE
     CATALOG_SUPPORT = CatalogSupport.SINGLE_CATALOG_ONLY
     COMMENT_CREATION_TABLE = CommentCreationTable.COMMENT_COMMAND_ONLY
     COMMENT_CREATION_VIEW = CommentCreationView.COMMENT_COMMAND_ONLY
@@ -105,7 +105,7 @@ class DB2EngineAdapter(
     SUPPORTED_DROP_CASCADE_OBJECT_KINDS = ["SCHEMA", "TABLE", "VIEW"]
     HAS_VIEW_BINDING = False
     MAX_IDENTIFIER_LENGTH: t.Optional[int] = 128
-    # DB2 requires FROM clause for CURRENT SERVER
+    # Db2 requires FROM clause for CURRENT SERVER
     CURRENT_CATALOG_EXPRESSION = exp.column("CURRENT SERVER")
     SCHEMA_DIFFER_KWARGS = {
         "parameterized_type_defaults": {
@@ -127,10 +127,10 @@ class DB2EngineAdapter(
                 exp.DataType.build("CHAR", dialect=DIALECT).this,
             },
         },
-        "drop_cascade": False,  # DB2 requires explicit CASCADE keyword
+        "drop_cascade": False,  # Db2 requires explicit CASCADE keyword
     }
     
-    # DB2 System Schemas (to exclude from operations)
+    # Db2 System Schemas (to exclude from operations)
     SYSTEM_SCHEMAS = {
         'SYSCAT', 'SYSFUN', 'SYSIBM', 'SYSIBMADM',
         'SYSPROC', 'SYSPUBLIC', 'SYSSTAT', 'SYSTOOLS'
@@ -139,7 +139,7 @@ class DB2EngineAdapter(
     def get_current_catalog(self) -> t.Optional[str]:
         """
         Returns the catalog name of the current connection.
-        DB2 requires FROM SYSIBM.SYSDUMMY1 for special registers.
+        Db2 requires FROM SYSIBM.SYSDUMMY1 for special registers.
         Returns uppercase to match sqlglot's Db2 dialect behavior.
         """
         result = self.fetchone("SELECT CURRENT SERVER FROM SYSIBM.SYSDUMMY1")
@@ -157,9 +157,9 @@ class DB2EngineAdapter(
         materialized: bool = False,
     ) -> exp.Schema:
         """
-        Build a schema expression for DB2.
+        Build a schema expression for Db2.
         
-        DB2 requires primary key columns to have NOT NULL constraint.
+        Db2 requires primary key columns to have NOT NULL constraint.
         """
         expressions = expressions or []
         
@@ -181,7 +181,7 @@ class DB2EngineAdapter(
                 col_type=None if is_view else col_type,
             )
             
-            # Add NOT NULL constraint for primary key columns in DB2
+            # Add NOT NULL constraint for primary key columns in Db2
             if column in pk_columns and not is_view:
                 # Get existing constraints
                 existing_constraints = col_def.args.get("constraints") or []
@@ -204,9 +204,9 @@ class DB2EngineAdapter(
     
     def _to_sql(self, expression: exp.Expression, quote: bool = True, **kwargs: t.Any) -> str:
         """
-        Converts an expression to SQL for DB2.
+        Converts an expression to SQL for Db2.
         
-        DB2 uppercases unquoted identifiers, but we need to quote identifiers that:
+        Db2 uppercases unquoted identifiers, but we need to quote identifiers that:
         - Contain special characters (like double underscores)
         - Are mixed case
         - Are reserved words
@@ -214,7 +214,7 @@ class DB2EngineAdapter(
         This ensures SQLMesh state tables (with __ in names) work correctly.
         """
         # Always quote when requested - this is needed for SQLMesh state tables
-        # which have names like "sqlmesh__versions" that DB2 treats specially
+        # which have names like "sqlmesh__versions" that Db2 treats specially
         return super()._to_sql(expression, quote=quote, **kwargs)
     
     def create_index(
@@ -227,19 +227,19 @@ class DB2EngineAdapter(
         """
         Creates a new index for the given table.
         
-        DB2 doesn't support IF NOT EXISTS for CREATE INDEX, so we need to
+        Db2 doesn't support IF NOT EXISTS for CREATE INDEX, so we need to
         check if the index exists first and only create it if it doesn't.
         
         Args:
             table_name: The name of the target table.
             index_name: The name of the index.
             columns: The list of columns that constitute the index.
-            exists: Indicates whether to check if index exists (ignored for DB2, always checks).
+            exists: Indicates whether to check if index exists (ignored for Db2, always checks).
         """
         if not self.SUPPORTS_INDEXES:
             return
         
-        # Check if index already exists in DB2 system catalog
+        # Check if index already exists in Db2 system catalog
         table = exp.to_table(table_name)
         schema_name = table.db or self._get_current_schema()
         
@@ -261,7 +261,7 @@ class DB2EngineAdapter(
             # If we can't check, try to create anyway and handle the warning
             logger.debug(f"Could not check if index exists: {e}")
         
-        # Create index without IF NOT EXISTS clause (DB2 doesn't support it)
+        # Create index without IF NOT EXISTS clause (Db2 doesn't support it)
         expression = exp.Create(
             this=exp.Index(
                 this=exp.to_identifier(index_name),
@@ -269,13 +269,13 @@ class DB2EngineAdapter(
                 params=exp.IndexParameters(columns=[exp.to_column(c) for c in columns]),
             ),
             kind="INDEX",
-            exists=False,  # DB2 doesn't support IF NOT EXISTS
+            exists=False,  # Db2 doesn't support IF NOT EXISTS
         )
         
         try:
             self.execute(expression)
         except Exception as e:
-            # DB2 returns SQL0605W warning when index already exists
+            # Db2 returns SQL0605W warning when index already exists
             # Check if it's the "index already exists" warning
             error_msg = str(e)
             if 'SQL0605W' in error_msg or 'index' in error_msg.lower() and 'already exists' in error_msg.lower():
@@ -288,13 +288,13 @@ class DB2EngineAdapter(
         self, table_name: TableName, include_pseudo_columns: bool = False
     ) -> t.Dict[str, exp.DataType]:
         """
-        Fetches column names and types for the target table from DB2 system catalog.
+        Fetches column names and types for the target table from Db2 system catalog.
         
-        Handles DB2's name truncation by using prefix matching when exact match fails.
+        Handles Db2's name truncation by using prefix matching when exact match fails.
         
         Args:
             table_name: The table to get columns for
-            include_pseudo_columns: Not used for DB2
+            include_pseudo_columns: Not used for Db2
             
         Returns:
             Dictionary mapping column names to their data types
@@ -319,15 +319,15 @@ class DB2EngineAdapter(
         self.execute(sql)
         resp = self.cursor.fetchall()
         
-        # If exact match fails, try prefix matching (DB2 truncates long names)
+        # If exact match fails, try prefix matching (Db2 truncates long names)
         if not resp:
             logger.info(
                 f"Exact match failed for table '{schema_name}.{table_name_str}'. "
-                f"Trying prefix match (DB2 may have truncated the name)..."
+                f"Trying prefix match (Db2 may have truncated the name)..."
             )
             
             # Use first 100 characters as prefix to be more specific
-            # DB2 truncates at 128 chars, so 100 should capture enough uniqueness
+            # Db2 truncates at 128 chars, so 100 should capture enough uniqueness
             prefix = table_name_str[:100]
             
             # Query using LIKE with prefix
@@ -365,11 +365,11 @@ class DB2EngineAdapter(
         
         columns = {}
         for column_name, data_type, length, scale in resp:
-            # Convert DB2 types to sqlglot DataType
-            # DB2 stores unquoted identifiers in uppercase, but SQLMesh may use
+            # Convert Db2 types to sqlglot DataType
+            # Db2 stores unquoted identifiers in uppercase, but SQLMesh may use
             # lowercase in model definitions. Normalize to uppercase for consistency.
             db2_type = self._db2_type_to_sqlglot(data_type, length, scale)
-            # Use uppercase for column names to match DB2's behavior
+            # Use uppercase for column names to match Db2's behavior
             columns[column_name.upper()] = db2_type
         
         return columns
@@ -378,10 +378,10 @@ class DB2EngineAdapter(
         self, db2_type: str, length: int, scale: int
     ) -> exp.DataType:
         """
-        Convert DB2 type to sqlglot DataType.
+        Convert Db2 type to sqlglot DataType.
         
         Args:
-            db2_type: DB2 type name
+            db2_type: Db2 type name
             length: Type length
             scale: Type scale
             
@@ -390,7 +390,7 @@ class DB2EngineAdapter(
         """
         db2_type = db2_type.upper()
         
-        # Comprehensive DB2 type mapping
+        # Comprehensive Db2 type mapping
         type_mapping = {
             # Numeric types
             "INTEGER": "INT",
@@ -434,14 +434,14 @@ class DB2EngineAdapter(
     
     @property
     def catalog_support(self) -> CatalogSupport:
-        """DB2 supports single catalog only."""
+        """Db2 supports single catalog only."""
         return CatalogSupport.SINGLE_CATALOG_ONLY
     
     def table_exists(self, table_name: TableName) -> bool:
         """
-        Check if table exists in DB2 using SYSCAT.TABLES.
+        Check if table exists in Db2 using SYSCAT.TABLES.
         
-        DB2 stores identifiers in the case they were created (quoted or unquoted).
+        Db2 stores identifiers in the case they were created (quoted or unquoted).
         We query the system catalog with case-insensitive matching to find the actual case.
         
         Args:
@@ -460,7 +460,7 @@ class DB2EngineAdapter(
         schema_name = table.db or self._get_current_schema()
         table_name_str = table.alias_or_name
         
-        # Query DB2's SYSCAT.TABLES with case-insensitive matching
+        # Query Db2's SYSCAT.TABLES with case-insensitive matching
         # Use UPPER() function for case-insensitive comparison
         sql = exp.select(
             exp.column("TABSCHEMA"),
@@ -478,7 +478,7 @@ class DB2EngineAdapter(
             
             exists = result is not None
             
-            # Update cache with actual case from DB2
+            # Update cache with actual case from Db2
             if exists:
                 actual_schema, actual_table = result
                 self._data_object_cache[data_object_cache_key] = DataObject(
@@ -489,7 +489,7 @@ class DB2EngineAdapter(
             
             return exists
         except Exception as e:
-            # Handle DB2 deadlock/timeout errors (SQL0911N) and other exceptions
+            # Handle Db2 deadlock/timeout errors (SQL0911N) and other exceptions
             # If we get an error checking if table exists, assume it doesn't exist
             # This allows the operation to proceed and potentially succeed
             logger.warning(
@@ -508,9 +508,9 @@ class DB2EngineAdapter(
         **kwargs: t.Any,
     ) -> exp.Create:
         """
-        Override to handle DB2's lack of support for CREATE TABLE IF NOT EXISTS.
+        Override to handle Db2's lack of support for CREATE TABLE IF NOT EXISTS.
         
-        DB2 doesn't support IF NOT EXISTS clause in CREATE TABLE statements.
+        Db2 doesn't support IF NOT EXISTS clause in CREATE TABLE statements.
         We handle this by:
         1. Checking if table exists when exists=True
         2. Creating without IF NOT EXISTS clause
@@ -528,12 +528,12 @@ class DB2EngineAdapter(
         Returns:
             CREATE TABLE expression without IF NOT EXISTS
         """
-        # DB2 doesn't support IF NOT EXISTS, so we always set exists=False
+        # Db2 doesn't support IF NOT EXISTS, so we always set exists=False
         # The table existence check is handled in _create_table method below
         return super()._build_create_table_exp(
             table_name_or_schema=table_name_or_schema,
             expression=expression,
-            exists=False,  # Always False for DB2
+            exists=False,  # Always False for Db2
             replace=replace,
             target_columns_to_types=target_columns_to_types,
             table_description=table_description,
@@ -555,13 +555,13 @@ class DB2EngineAdapter(
         **kwargs: t.Any,
     ) -> None:
         """
-        Override to handle DB2's lack of support for CREATE TABLE IF NOT EXISTS
+        Override to handle Db2's lack of support for CREATE TABLE IF NOT EXISTS
         and to add WITH DATA clause for CREATE TABLE AS SELECT.
         
-        Since DB2 doesn't support IF NOT EXISTS, we check table existence first
+        Since Db2 doesn't support IF NOT EXISTS, we check table existence first
         and skip creation if the table already exists and exists=True.
         
-        DB2 also requires WITH DATA clause for CREATE TABLE AS SELECT statements
+        Db2 also requires WITH DATA clause for CREATE TABLE AS SELECT statements
         and doesn't allow subquery aliases in CTAS.
         
         Args:
@@ -599,7 +599,7 @@ class DB2EngineAdapter(
             logger.info(f"Detected staging object: {schema_name}.{table_name_str}")
             
             # Query SYSCAT to find actual table/view names (handles truncation)
-            # DB2 may truncate long names, so we search by prefix
+            # Db2 may truncate long names, so we search by prefix
             # Use 100 chars to be specific enough to distinguish similar table names
             search_prefix = table_name_str[:100].upper()
             
@@ -651,7 +651,7 @@ class DB2EngineAdapter(
                     return
                 elif replace or not exists:
                     # Drop the table if replace=True or exists=False
-                    # DB2 doesn't support CREATE OR REPLACE TABLE, so we drop first
+                    # Db2 doesn't support CREATE OR REPLACE TABLE, so we drop first
                     try:
                         drop_sql = f'DROP TABLE {self._to_sql(table)}'
                         logger.info(f"CTAS: Dropping existing table: {drop_sql}")
@@ -665,14 +665,14 @@ class DB2EngineAdapter(
                         logger.warning(f"CTAS: Failed to drop table {table_name}: {e}")
                         raise
             
-            # Don't use replace flag in CREATE statement since DB2 doesn't support it
+            # Don't use replace flag in CREATE statement since Db2 doesn't support it
             replace = False
             
             # Build the CREATE TABLE expression
             create_exp = self._build_create_table_exp(
                 table_name_or_schema=table_name_or_schema,
                 expression=expression,
-                exists=False,  # Always False for DB2
+                exists=False,  # Always False for Db2
                 replace=replace,
                 target_columns_to_types=target_columns_to_types,
                 table_description=table_description,
@@ -683,8 +683,8 @@ class DB2EngineAdapter(
             # Convert to SQL
             sql = self._to_sql(create_exp)
             
-            # DB2-specific fixes for CREATE TABLE AS SELECT:
-            # 1. Remove the outer subquery alias that DB2 doesn't allow in CTAS
+            # Db2-specific fixes for CREATE TABLE AS SELECT:
+            # 1. Remove the outer subquery alias that Db2 doesn't allow in CTAS
             #    Pattern: ...)) AS "_subquery" -> ...))
             sql = re.sub(
                 r'\)\s+AS\s+"_subquery"',
@@ -693,7 +693,7 @@ class DB2EngineAdapter(
                 flags=re.IGNORECASE
             )
             
-            # 2. DB2 requires WITH DATA but doesn't accept it after subquery parentheses
+            # 2. Db2 requires WITH DATA but doesn't accept it after subquery parentheses
             #    We need to wrap the SELECT in parentheses: CREATE TABLE AS (...) WITH DATA
             if "WITH DATA" not in sql.upper() and "WITH NO DATA" not in sql.upper():
                 # Find the position after "AS" in "CREATE TABLE ... AS"
@@ -727,7 +727,7 @@ class DB2EngineAdapter(
             super()._create_table(
                 table_name_or_schema=table_name_or_schema,
                 expression=expression,
-                exists=False,  # Always False for DB2
+                exists=False,  # Always False for Db2
                 replace=replace,
                 target_columns_to_types=target_columns_to_types,
                 table_description=table_description,
@@ -752,9 +752,9 @@ class DB2EngineAdapter(
         **create_kwargs: t.Any,
     ) -> None:
         """
-        Create a view in DB2.
+        Create a view in Db2.
         
-        DB2 has strict rules around view replacement similar to PostgreSQL.
+        Db2 has strict rules around view replacement similar to PostgreSQL.
         We drop the old view before creating a new one.
         """
         with self.transaction():
@@ -782,9 +782,9 @@ class DB2EngineAdapter(
         **kwargs: t.Any,
     ) -> None:
         """
-        Drop a view in DB2.
+        Drop a view in Db2.
         
-        DB2 doesn't support IF EXISTS or CASCADE for views.
+        Db2 doesn't support IF EXISTS or CASCADE for views.
         For staging views, try multiple naming formats due to case sensitivity issues.
         """
         table = exp.to_table(view_name)
@@ -840,7 +840,7 @@ class DB2EngineAdapter(
                     logger.debug(f"View {view_name_str} doesn't exist")
                     return
             
-            # Drop view - DB2 doesn't support IF EXISTS or CASCADE for views
+            # Drop view - Db2 doesn't support IF EXISTS or CASCADE for views
             drop_sql = f"DROP VIEW {self._to_sql(table)}"
             self.execute(drop_sql)
             self._clear_data_object_cache(view_name)
@@ -851,7 +851,7 @@ class DB2EngineAdapter(
         """
         Returns all the data objects that exist in the given schema.
         
-        Uses DB2's SYSCAT tables to query for tables and views.
+        Uses Db2's SYSCAT tables to query for tables and views.
         """
         catalog = self.get_current_catalog()
         schema = to_schema(schema_name).db
@@ -899,7 +899,7 @@ class DB2EngineAdapter(
         """
         Returns the current default schema for the connection.
         
-        Uses DB2's CURRENT SCHEMA special register.
+        Uses Db2's CURRENT SCHEMA special register.
         """
         result = self.fetchone("SELECT CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1")
         if result and result[0]:
@@ -915,7 +915,7 @@ class DB2EngineAdapter(
         **kwargs: t.Any,
     ) -> None:
         """
-        Create a schema in DB2.
+        Create a schema in Db2.
         
         Args:
             schema_name: Name of the schema to create
@@ -925,7 +925,7 @@ class DB2EngineAdapter(
         schema_name_str = schema.db
         
         if ignore_if_exists:
-            # Check if schema exists (case-insensitive) - DB2 stores schema names in uppercase
+            # Check if schema exists (case-insensitive) - Db2 stores schema names in uppercase
             # Check both the provided case and uppercase version
             check_sql = f"""
                 SELECT 1 FROM SYSCAT.SCHEMATA
@@ -940,7 +940,7 @@ class DB2EngineAdapter(
                 logger.warning(f"Error checking schema existence: {e}")
                 # Continue to try creating the schema
         
-        # Create schema - DB2 will uppercase it automatically
+        # Create schema - Db2 will uppercase it automatically
         create_sql = exp.Create(
             this=exp.Schema(this=exp.to_identifier(schema_name_str)),
             kind="SCHEMA",
@@ -950,7 +950,7 @@ class DB2EngineAdapter(
         except Exception as e:
             # Only ignore if schema already exists (duplicate object error)
             # Do NOT ignore privilege errors - let them propagate
-            if ignore_if_exists and is_db2_error(e, DB2ErrorCodes.DUPLICATE_OBJECT):
+            if ignore_if_exists and is_db2_error(e, Db2ErrorCodes.DUPLICATE_OBJECT):
                 logger.debug(f"Schema {schema_name_str} already exists (caught during creation)")
                 return
             # Re-raise all other errors including privilege errors
@@ -964,7 +964,7 @@ class DB2EngineAdapter(
         **kwargs: t.Any,
     ) -> None:
         """
-        Drop a schema in DB2.
+        Drop a schema in Db2.
         
         Args:
             schema_name: Name of the schema to drop
@@ -972,7 +972,7 @@ class DB2EngineAdapter(
             cascade: If True, drop all objects in schema first
             
         Note:
-            DB2 requires RESTRICT keyword and all objects to be dropped before dropping schema.
+            Db2 requires RESTRICT keyword and all objects to be dropped before dropping schema.
         """
         schema = to_schema(schema_name)
         schema_name_str = schema.db.upper()
@@ -1004,7 +1004,7 @@ class DB2EngineAdapter(
                 )
                 self.execute(drop_table_exp)
         
-        # Drop schema - DB2 requires RESTRICT keyword, use raw SQL
+        # Drop schema - Db2 requires RESTRICT keyword, use raw SQL
         drop_sql = f"DROP SCHEMA {schema_name_str} RESTRICT"
         self.execute(drop_sql)
     
@@ -1016,11 +1016,11 @@ class DB2EngineAdapter(
         whens: exp.Whens,
     ) -> None:
         """
-        Execute MERGE statement for DB2.
+        Execute MERGE statement for Db2.
         
-        DB2 has issues with double underscore aliases, so we use simple aliases.
+        Db2 has issues with double underscore aliases, so we use simple aliases.
         """
-        # Use simple aliases without underscores for DB2
+        # Use simple aliases without underscores for Db2
         this = exp.alias_(exp.to_table(target_table), alias="TARGET", table=True)
         using = exp.alias_(
             exp.Subquery(this=query), alias="SOURCE", copy=False, table=True
@@ -1062,7 +1062,7 @@ class DB2EngineAdapter(
         """
         Create a table with the same structure as another table.
         
-        DB2 supports LIKE clause in CREATE TABLE.
+        Db2 supports LIKE clause in CREATE TABLE.
         """
         self.execute(
             exp.Create(
@@ -1080,12 +1080,12 @@ class DB2EngineAdapter(
         """
         Set the current catalog (database) for the connection.
         
-        In DB2, this is done using CONNECT TO statement.
+        In Db2, this is done using CONNECT TO statement.
         
         Args:
             catalog: The catalog name to switch to
         """
-        # DB2 uses CONNECT TO to switch databases
+        # Db2 uses CONNECT TO to switch databases
         self.execute(f"CONNECT TO {catalog}")
         logger.info(f"Switched to catalog: {catalog}")
     
@@ -1093,7 +1093,7 @@ class DB2EngineAdapter(
     @cached_property
     def server_version(self) -> t.Tuple[int, int]:
         """
-        Lazily fetch and cache major and minor DB2 server version.
+        Lazily fetch and cache major and minor Db2 server version.
         
         Returns:
             Tuple of (major_version, minor_version)
@@ -1102,14 +1102,14 @@ class DB2EngineAdapter(
             result = self.fetchone("SELECT SERVICE_LEVEL FROM SYSIBMADM.ENV_INST_INFO")
             if result and result[0]:
                 version_str = result[0]
-                # Parse version string (e.g., "DB2 v11.5.0.0")
+                # Parse version string (e.g., "Db2 v11.5.0.0")
                 import re
                 match = re.search(r"v?(\d+)\.(\d+)", version_str)
                 if match:
                     return int(match.group(1)), int(match.group(2))
         except Exception as e:
-            logger.warning(f"Could not determine DB2 version: {e}")
+            logger.warning(f"Could not determine Db2 version: {e}")
         
-        return 11, 5  # Default to DB2 11.5
+        return 11, 5  # Default to Db2 11.5
 
 # Made with Bob

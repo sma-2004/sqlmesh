@@ -53,9 +53,9 @@ RECOMMENDED_STATE_SYNC_ENGINES = {
     "mssql",
     "azuresql",
 }
-# Note: DB2 is excluded because it doesn't allow table names starting with underscore (_)
+# Note: Db2 is excluded because it doesn't allow table names starting with underscore (_)
 # which SQLMesh uses for state tables (_versions, _snapshots, _environments, _intervals).
-# Use a separate state_connection (e.g., DuckDB) for DB2 gateways.
+# Use a separate state_connection (e.g., DuckDB) for Db2 gateways.
 FORBIDDEN_STATE_SYNC_ENGINES = {
     # Do not support row-level operations
     "spark",
@@ -2606,10 +2606,10 @@ _CONNECTION_CONFIG_EXCLUDE: t.Set[t.Type[ConnectionConfig]] = {
 }
 
 
-class DB2ConnectionConfig(ConnectionConfig):
-    """Configuration for IBM DB2 database connection.
+class Db2ConnectionConfig(ConnectionConfig):
+    """Configuration for IBM Db2 database connection.
     
-    Note: DB2 has a 128-character limit for table identifiers. For projects with long schema
+    Note: Db2 has a 128-character limit for table identifiers. For projects with long schema
     or table names, it's recommended to use hash-based naming to avoid truncation issues.
     Add this to your config.yaml:
     
@@ -2618,12 +2618,12 @@ class DB2ConnectionConfig(ConnectionConfig):
     This will generate shorter table names like: sqlmesh_md5__3b07384d113edec49eaa6238ad5ff00d
     
     Args:
-        host: The DB2 server hostname or IP address.
-        port: The DB2 server port (default: 50000).
-        database: The DB2 database name.
-        db2_schema: The DB2 schema name (required).
-        username: The DB2 username.
-        password: The DB2 password.
+        host: The Db2 server hostname or IP address.
+        port: The Db2 server port (default: 50000).
+        database: The Db2 database name.
+        db2_schema: The Db2 schema name (required).
+        username: The Db2 username.
+        password: The Db2 password.
         concurrent_tasks: The maximum number of tasks that can use this connection concurrently.
         register_comments: Whether or not to register model comments with the SQL engine.
         pre_ping: Whether or not to pre-ping the connection before starting a new transaction.
@@ -2675,16 +2675,16 @@ class DB2ConnectionConfig(ConnectionConfig):
     
     @property
     def _engine_adapter(self) -> t.Type[EngineAdapter]:
-        return engine_adapter.DB2EngineAdapter
+        return engine_adapter.Db2EngineAdapter
     
     def get_catalog(self) -> t.Optional[str]:
-        """Return uppercase catalog name to match sqlglot's DB2 dialect behavior."""
+        """Return uppercase catalog name to match sqlglot's Db2 dialect behavior."""
         catalog = super().get_catalog()
         return catalog.upper() if catalog else None
     
     @property
     def _extra_engine_config(self) -> t.Dict[str, t.Any]:
-        """Configure SQL generation to not normalize (uppercase) identifiers for DB2."""
+        """Configure SQL generation to not normalize (uppercase) identifiers for Db2."""
         return {
             "sql_gen_kwargs": {
                 "normalize": False,  # Don't uppercase identifiers
@@ -2703,7 +2703,7 @@ class DB2ConnectionConfig(ConnectionConfig):
         connect_timeout = self.connect_timeout
         
         def connect_db2(**kwargs: t.Any) -> t.Any:
-            # Build DB2 connection string
+            # Build Db2 connection string
             conn_str_parts = [
                 f"DATABASE={kwargs['database']}",
                 f"HOSTNAME={kwargs['host']}",
