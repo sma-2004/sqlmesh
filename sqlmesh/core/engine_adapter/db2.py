@@ -32,6 +32,7 @@ from sqlmesh.core.engine_adapter.shared import (
     CommentCreationView,
     DataObject,
     DataObjectType,
+    SourceQuery,
     set_catalog,
 )
 from sqlmesh.core.dialect import to_schema
@@ -39,7 +40,7 @@ from sqlmesh.utils.errors import SQLMeshError
 
 if t.TYPE_CHECKING:
     from sqlmesh.core._typing import SchemaName, TableName
-    from sqlmesh.core.engine_adapter._typing import Query, QueryOrDF
+    from sqlmesh.core.engine_adapter._typing import DF, Query, QueryOrDF
 
 logger = logging.getLogger(__name__)
 
@@ -1076,6 +1077,63 @@ class Db2EngineAdapter(
                 exists=exists,
             )
         )
+    
+    def _convert_df_datetime(self, df: DF, columns_to_types: t.Dict[str, exp.DataType]) -> None:
+        """
+        Convert DataFrame datetime columns to strings for DB2.
+        
+        DB2 has strict type casting rules:
+        - TIME columns cannot be cast to TIMESTAMP or DATE
+        - We convert TIME columns to string format that DB2 can parse
+        """
+        import pandas as pd
+        from pandas.api.types import is_datetime64_any_dtype  # type: ignore
+        
+        for column, kind in columns_to_types.items():
+            if column not in df.columns:
+                continue
+                
+            # Handle TIME columns - convert to HH:MM:SS string format
+            if kind.is_type(exp.DataType.Type.TIME):  # type: ignore
+                if is_datetime64_any_dtype(df.dtypes[column]):  # type: ignore
+                    # Convert pandas datetime to TIME string format
+                    df[column] = pd.to_datetime(df[column]).dt.strftime("%H:%M:%S")  # type: ignore
+                else:
+                    # Ensure it's a string
+                    df[column] = df[column].astype(str)  # type: ignore
+            
+            # Handle DATE columns
+            elif kind.is_type(exp.DataType.Type.DATE):  # type: ignore
+                df[column] = pd.to_datetime(df[column]).dt.strftime("%Y-%m-%d")  # type: ignore
+            
+            # Handle TIMESTAMP columns
+            elif is_datetime64_any_dtype(df.dtypes[column]):  # type: ignore
+                df[column] = pd.to_datetime(df[column]).dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
+    
+    def _df_to_source_queries(
+        self,
+        df: DF,
+        target_columns_to_types: t.Dict[str, exp.DataType],
+        batch_size: int,
+        target_table: TableName,
+        source_columns: t.Optional[t.List[str]] = None,
+    ) -> t.List[SourceQuery]:
+        """
+        Override to convert datetime columns before processing.
+        """
+        from sqlmesh.core.dialect import get_source_columns_to_types
+        
+        # Convert datetime columns to strings for DB2
+        source_columns_to_types = get_source_columns_to_types(
+            target_columns_to_types, source_columns
+        )
+        self._convert_df_datetime(df, source_columns_to_types)
+        
+        # Call parent implementation
+        return super()._df_to_source_queries(
+            df, target_columns_to_types, batch_size, target_table, source_columns
+        )
+    
     def set_current_catalog(self, catalog: str) -> None:
         """
         Set the current catalog (database) for the connection.
@@ -1112,4 +1170,3 @@ class Db2EngineAdapter(
         
         return 11, 5  # Default to Db2 11.5
 
-# Made with Bob

@@ -112,6 +112,10 @@ dev = [
 ]
 dbt = ["dbt-core<2"]
 dlt = ["dlt"]
+db2 = [
+    "ibm_db",
+    "db2-sqlglot-dialect @ file:///Users/shubhamkapoor/Documents/sqlglot-direct-plugin/db2-sqlglot-dialect/dist/db2_sqlglot_dialect-1.1.0-py3-none-any.whl"
+]
 duckdb = []
 fabric = ["pyodbc>=5.0.0"]
 fabric-mssql-python = ["mssql-python>=1.1.0;python_version>=\"3.10\""]
