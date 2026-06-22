@@ -852,49 +852,56 @@ class Db2EngineAdapter(
         """
         Returns all the data objects that exist in the given schema.
         
-        Uses Db2's SYSCAT tables to query for tables and views.
+        Uses Db2's SYSCAT.TABLES to query for both tables and views
         """
         catalog = self.get_current_catalog()
         schema = to_schema(schema_name).db
         
-        # Query for tables
-        table_query = exp.select(
-            exp.Literal.string(schema).as_("schema_name"),
-            exp.column("TABNAME").as_("name"),
-            exp.Literal.string("TABLE").as_("type"),
-        ).from_("SYSCAT.TABLES").where(
-            exp.and_(
-                exp.column("TABSCHEMA").eq(exp.Literal.string(schema.upper())),
-                exp.column("TYPE").eq(exp.Literal.string("T")),
+        # Build query similar to MySQL's approach using SYSCAT.TABLES
+        # In DB2, TYPE column: 'T' = Table, 'V' = View
+        query = (
+            exp.select(
+                exp.column("TABNAME").as_("name"),
+                exp.column("TABSCHEMA").as_("schema_name"),
+                exp.case()
+                .when(
+                    exp.column("TYPE").eq("T"),
+                    exp.Literal.string("table"),
+                )
+                .when(
+                    exp.column("TYPE").eq("V"),
+                    exp.Literal.string("view"),
+                )
+                .else_(exp.column("TYPE"))
+                .as_("type"),
+            )
+            .from_(exp.table_("TABLES", db="SYSCAT"))
+            .where(
+                 exp.func("UPPER", exp.column("TABSCHEMA")).eq(
+                 exp.Literal.string(schema.upper())
+                )
             )
         )
-        
-        # Query for views
-        view_query = exp.select(
-            exp.Literal.string(schema).as_("schema_name"),
-            exp.column("VIEWNAME").as_("name"),
-            exp.Literal.string("VIEW").as_("type"),
-        ).from_("SYSCAT.VIEWS").where(
-            exp.column("VIEWSCHEMA").eq(exp.Literal.string(schema.upper()))
-        )
-        
-        # Union queries
-        subquery = exp.union(table_query, view_query, distinct=False)
-        query = exp.select("*").from_(subquery.subquery(alias="objs"))
         
         if object_names:
-            query = query.where(exp.column("name").isin(*[n.upper() for n in object_names]))
-        
+            query = query.where(exp.func("UPPER", exp.column("TABNAME")).isin(*[n.upper() for n in object_names]))
+
         df = self.fetchdf(query)
-        return [
+        # Pandas/ibm_db returns column names in uppercase regardless of SQL aliases.
+        # Normalize to lowercase so DataFrame.itertuples() exposes row.name,
+        # row.schema_name, and row.type consistently across adapters.   
+        df.columns = [c.lower() for c in df.columns]
+
+        objects = [
             DataObject(
-                catalog=catalog,
-                schema=str(row[0]),  # schema_name column
-                name=str(row[1]).lower(),  # name column
-                type=DataObjectType.from_str(str(row[2])),  # type column
-            )
-            for row in df.itertuples(index=False, name=None)
+            catalog=catalog,
+            schema=row.schema_name,
+            name=row.name,
+            type=DataObjectType.from_str(row.type),
+         )
+         for row in df.itertuples()
         ]
+        return objects
     
     def _get_current_schema(self) -> str:
         """
