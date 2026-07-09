@@ -2607,61 +2607,29 @@ _CONNECTION_CONFIG_EXCLUDE: t.Set[t.Type[ConnectionConfig]] = {
 
 
 class Db2ConnectionConfig(ConnectionConfig):
-    """Configuration for IBM Db2 database connection.
-    
-    Note: Db2 has a 128-character limit for table identifiers. For projects with long schema
-    or table names, it's recommended to use hash-based naming to avoid truncation issues.
-    Add this to your config.yaml:
-    
-        physical_table_naming_convention: hash_md5
-    
-    This will generate shorter table names like: sqlmesh_md5__3b07384d113edec49eaa6238ad5ff00d
-    
-    Args:
-        host: The Db2 server hostname or IP address.
-        port: The Db2 server port (default: 50000).
-        database: The Db2 database name.
-        db2_schema: The Db2 schema name (required).
-        username: The Db2 username.
-        password: The Db2 password.
-        concurrent_tasks: The maximum number of tasks that can use this connection concurrently.
-        register_comments: Whether or not to register model comments with the SQL engine.
-        pre_ping: Whether or not to pre-ping the connection before starting a new transaction.
-    """
-    
     host: str
     port: int = 50000
     database: str
     db2_schema: str
     username: str
     password: str
-    
-    # Connection options
-    concurrent_tasks: int = 4
-    register_comments: bool = True
-    pre_ping: bool = True
-    
-    # SSL/TLS options
     ssl: bool = False
     ssl_cert: t.Optional[str] = None
     ssl_key: t.Optional[str] = None
     ssl_ca: t.Optional[str] = None
-    
-    # Timeout options (in seconds)
     connect_timeout: int = 30
-    query_timeout: t.Optional[int] = None
-    
-    # Connection pooling
-    pool_size: int = 5
-    pool_recycle: int = 3600  # Recycle connections after 1 hour
-    
+
+    concurrent_tasks: int = 4
+    register_comments: bool = True
+    pre_ping: bool = True
+
     type_: t.Literal["db2"] = Field(alias="type", default="db2")
     DIALECT: t.ClassVar[t.Literal["db2"]] = "db2"
     DISPLAY_NAME: t.ClassVar[t.Literal["Db2"]] = "Db2"
     DISPLAY_ORDER: t.ClassVar[t.Literal[17]] = 17
-    
+
     _engine_import_validator = _get_engine_import_validator("ibm_db", "db2")
-    
+
     @property
     def _connection_kwargs_keys(self) -> t.Set[str]:
         return {
@@ -2672,50 +2640,38 @@ class Db2ConnectionConfig(ConnectionConfig):
             "username",
             "password",
         }
-    
+
     @property
     def _engine_adapter(self) -> t.Type[EngineAdapter]:
         return engine_adapter.Db2EngineAdapter
-    
+
     def get_catalog(self) -> t.Optional[str]:
-        """Return uppercase catalog name to match sqlglot's Db2 dialect behavior."""
+        """Db2 stores catalog names in uppercase; normalise here so the default_catalog
+        passed to the adapter matches what get_current_catalog() returns at runtime."""
         catalog = super().get_catalog()
         return catalog.upper() if catalog else None
-    
-    @property
-    def _extra_engine_config(self) -> t.Dict[str, t.Any]:
-        """Configure SQL generation to not normalize (uppercase) identifiers for Db2."""
-        return {
-            "sql_gen_kwargs": {
-                "normalize": False,  # Don't uppercase identifiers
-            }
-        }
-    
+
     @property
     def _connection_factory(self) -> t.Callable:
         import ibm_db_dbi
-        
-        # Capture connection options
+
         ssl = self.ssl
         ssl_cert = self.ssl_cert
         ssl_key = self.ssl_key
         ssl_ca = self.ssl_ca
         connect_timeout = self.connect_timeout
-        
+
         def connect_db2(**kwargs: t.Any) -> t.Any:
-            # Build Db2 connection string
             conn_str_parts = [
                 f"DATABASE={kwargs['database']}",
                 f"HOSTNAME={kwargs['host']}",
                 f"PORT={kwargs['port']}",
-                f"PROTOCOL=TCPIP",
+                "PROTOCOL=TCPIP",
                 f"UID={kwargs['username']}",
                 f"PWD={kwargs['password']}",
                 f"CURRENTSCHEMA={kwargs['db2_schema']}",
                 f"CONNECTTIMEOUT={connect_timeout}",
             ]
-            
-            # Add SSL/TLS options if enabled
             if ssl:
                 conn_str_parts.append("SECURITY=SSL")
                 if ssl_cert:
@@ -2724,10 +2680,9 @@ class Db2ConnectionConfig(ConnectionConfig):
                     conn_str_parts.append(f"SSLClientKey={ssl_key}")
                 if ssl_ca:
                     conn_str_parts.append(f"SSLServerCertificate={ssl_ca}")
-            
             conn_str = ";".join(conn_str_parts) + ";"
             return ibm_db_dbi.connect(conn_str, "", "")
-        
+
         return connect_db2
 
 
