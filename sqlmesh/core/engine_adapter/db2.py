@@ -8,10 +8,7 @@ from functools import cached_property
 from sqlglot import exp
 
 from sqlmesh.core.engine_adapter.base import EngineAdapter, _get_data_object_cache_key
-from sqlmesh.core.engine_adapter.mixins import (
-    GetCurrentCatalogFromFunctionMixin,
-    PandasNativeFetchDFSupportMixin,
-)
+from sqlmesh.core.engine_adapter.mixins import PandasNativeFetchDFSupportMixin
 from sqlmesh.core.engine_adapter.shared import (
     CatalogSupport,
     CommentCreationTable,
@@ -46,7 +43,6 @@ def is_db2_error(exception: Exception, error_code: str) -> bool:
 @set_catalog()
 class Db2EngineAdapter(
     PandasNativeFetchDFSupportMixin,
-    GetCurrentCatalogFromFunctionMixin,
     EngineAdapter,
 ):
     DIALECT = "db2"
@@ -58,8 +54,6 @@ class Db2EngineAdapter(
     SUPPORTS_QUERY_EXECUTION_TRACKING = True
     SUPPORTED_DROP_CASCADE_OBJECT_KINDS = ["SCHEMA", "TABLE", "VIEW"]
     MAX_IDENTIFIER_LENGTH: t.Optional[int] = 128
-    # Db2 requires a FROM clause to read special registers such as CURRENT SERVER
-    CURRENT_CATALOG_EXPRESSION = exp.column("CURRENT SERVER")
     SCHEMA_DIFFER_KWARGS = {
         "parameterized_type_defaults": {
             # DECIMAL without precision defaults to (5, 0)
@@ -225,8 +219,12 @@ class Db2EngineAdapter(
             .from_("SYSCAT.COLUMNS")
             .where(
                 exp.and_(
-                    exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name)),
-                    exp.column("TABNAME").eq(exp.Literal.string(table_name_str)),
+                    exp.func("UPPER", exp.column("TABSCHEMA")).eq(
+                        exp.Literal.string(schema_name.upper())
+                    ),
+                    exp.func("UPPER", exp.column("TABNAME")).eq(
+                        exp.Literal.string(table_name_str.upper())
+                    ),
                 )
             )
             .order_by("COLNO")
@@ -253,8 +251,10 @@ class Db2EngineAdapter(
                 .from_("SYSCAT.COLUMNS")
                 .where(
                     exp.and_(
-                        exp.column("TABSCHEMA").eq(exp.Literal.string(schema_name)),
-                        exp.column("TABNAME").like(exp.Literal.string(f"{prefix}%")),
+                        exp.func("UPPER", exp.column("TABSCHEMA")).eq(
+                            exp.Literal.string(schema_name.upper())
+                        ),
+                        exp.column("TABNAME").like(exp.Literal.string(f"{prefix.upper()}%")),
                     )
                 )
                 .order_by("TABNAME", "COLNO")
@@ -278,7 +278,7 @@ class Db2EngineAdapter(
             resp = [(row[1], row[2], row[3], row[4]) for row in prefix_resp]
 
         return {
-            column_name.upper(): self._db2_type_to_sqlglot(data_type, length, scale)
+            column_name: self._db2_type_to_sqlglot(data_type, length, scale)
             for column_name, data_type, length, scale in resp
         }
 
@@ -564,11 +564,25 @@ class Db2EngineAdapter(
         ]
 
     def _get_current_schema(self) -> str:
-        """Returns the value of the CURRENT SCHEMA special register for the connection."""
+        """
+        Returns the active schema for the connection.
+
+        CURRENT SCHEMA defaults to the connected username in Db2, but can be set
+        to an empty string via SET CURRENT SCHEMA = ''.  If it is empty, fall back
+        to CURRENT USER (the authorization name, which always equals the default
+        schema Db2 would create on first connect).
+        """
         result = self.fetchone("SELECT CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1")
-        if result and result[0]:
+        if result and result[0] and result[0].strip():
             return result[0].lower()
-        return "public"
+        user = self.fetchone("SELECT CURRENT USER FROM SYSIBM.SYSDUMMY1")
+        if user and user[0] and user[0].strip():
+            return user[0].lower()
+        raise SQLMeshError(
+            "Could not determine the current Db2 schema. "
+            "CURRENT SCHEMA and CURRENT USER are both empty. "
+            "Set the db2_schema connection option explicitly."
+        )
 
     def create_schema(
         self,
@@ -716,7 +730,12 @@ class Db2EngineAdapter(
                     ],
                 ),
                 kind="TABLE",
-                exists=exists,
+                # Always pass exists=False here: Db2 pre-11.5.8 does not support
+                # IF NOT EXISTS, and the rest of the adapter guards existence
+                # explicitly via _create_table rather than relying on the dialect.
+                # The caller is responsible for the existence check before reaching
+                # this point, consistent with _build_create_table_exp.
+                exists=False,
             )
         )
 
@@ -741,6 +760,24 @@ class Db2EngineAdapter(
                 df[column] = pd.to_datetime(df[column]).dt.strftime("%Y-%m-%d")  # type: ignore
             elif is_datetime64_any_dtype(df.dtypes[column]):  # type: ignore
                 df[column] = pd.to_datetime(df[column]).dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
+
+    def _fetch_native_df(
+        self, query: t.Union[exp.Expression, str], quote_identifiers: bool = False
+    ) -> "DF":
+        """
+        Db2 stores identifiers created with quoting as case-sensitive (e.g. "id").
+        The base class and the snapshot evaluator both call _fetch_native_df with
+        quote_identifiers=False, which leaves column references unquoted.  Db2
+        uppercases unquoted identifiers at parse time, so SELECT id FROM tbl
+        becomes a lookup for ID — causing SQL0206N against a table whose columns
+        were stored as case-sensitive lowercase "id" by CREATE TABLE.
+
+        Forcing quote_identifiers=True here ensures every SELECT issued by
+        SQLMesh (evaluator, fetchdf, fetchall via execute) wraps identifiers in
+        double-quotes so Db2 matches them exactly as stored.  This mirrors the
+        same pattern used by Snowflake, BigQuery, and Athena.
+        """
+        return super()._fetch_native_df(query, quote_identifiers=True)
 
     def _df_to_source_queries(
         self,
