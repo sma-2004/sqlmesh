@@ -26,16 +26,16 @@ def adapter(make_mocked_engine_adapter: t.Callable) -> Db2EngineAdapter:
 def test_columns(adapter: Db2EngineAdapter):
     """columns() must map every Db2 catalog type correctly and return names as-is."""
     adapter.cursor.fetchall.return_value = [
-        ("id",          "INTEGER",   4,       0),
-        ("name",        "VARCHAR",   100,     0),
-        ("amount",      "DECIMAL",   10,      2),
-        ("created_at",  "TIMESTAMP", 10,      6),
-        ("data",        "CLOB",      1048576, 0),
-        ("binary_data", "BLOB",      1048576, 0),
-        ("flag",        "SMALLINT",  2,       0),
-        ("big_num",     "BIGINT",    8,       0),
-        ("price",       "DOUBLE",    8,       0),
-        ("code",        "CHAR",      10,      0),
+        ("id", "INTEGER", 4, 0),
+        ("name", "VARCHAR", 100, 0),
+        ("amount", "DECIMAL", 10, 2),
+        ("created_at", "TIMESTAMP", 10, 6),
+        ("data", "CLOB", 1048576, 0),
+        ("binary_data", "BLOB", 1048576, 0),
+        ("flag", "SMALLINT", 2, 0),
+        ("big_num", "BIGINT", 8, 0),
+        ("price", "DOUBLE", 8, 0),
+        ("code", "CHAR", 10, 0),
     ]
 
     result = adapter.columns("test_schema.test_table")
@@ -44,20 +44,28 @@ def test_columns(adapter: Db2EngineAdapter):
     # CREATE TABLE stores them as case-sensitive lowercase when quote_identifiers=True.
     # Uppercasing would cause the schema differ to fire spurious ALTER TABLE every plan.
     assert list(result.keys()) == [
-        "id", "name", "amount", "created_at", "data",
-        "binary_data", "flag", "big_num", "price", "code",
+        "id",
+        "name",
+        "amount",
+        "created_at",
+        "data",
+        "binary_data",
+        "flag",
+        "big_num",
+        "price",
+        "code",
     ]
     assert result == {
-        "id":          exp.DataType.build("INT",          dialect=adapter.dialect),
-        "name":        exp.DataType.build("VARCHAR(100)", dialect=adapter.dialect),
-        "amount":      exp.DataType.build("DECIMAL(10,2)",dialect=adapter.dialect),
-        "created_at":  exp.DataType.build("TIMESTAMP",    dialect=adapter.dialect),
-        "data":        exp.DataType.build("CLOB",         dialect=adapter.dialect),
-        "binary_data": exp.DataType.build("BLOB",         dialect=adapter.dialect),
-        "flag":        exp.DataType.build("SMALLINT",     dialect=adapter.dialect),
-        "big_num":     exp.DataType.build("BIGINT",       dialect=adapter.dialect),
-        "price":       exp.DataType.build("DOUBLE",       dialect=adapter.dialect),
-        "code":        exp.DataType.build("CHAR(10)",     dialect=adapter.dialect),
+        "id": exp.DataType.build("INT", dialect=adapter.dialect),
+        "name": exp.DataType.build("VARCHAR(100)", dialect=adapter.dialect),
+        "amount": exp.DataType.build("DECIMAL(10,2)", dialect=adapter.dialect),
+        "created_at": exp.DataType.build("TIMESTAMP", dialect=adapter.dialect),
+        "data": exp.DataType.build("CLOB", dialect=adapter.dialect),
+        "binary_data": exp.DataType.build("BLOB", dialect=adapter.dialect),
+        "flag": exp.DataType.build("SMALLINT", dialect=adapter.dialect),
+        "big_num": exp.DataType.build("BIGINT", dialect=adapter.dialect),
+        "price": exp.DataType.build("DOUBLE", dialect=adapter.dialect),
+        "code": exp.DataType.build("CHAR(10)", dialect=adapter.dialect),
     }
 
 
@@ -70,15 +78,15 @@ def test_type_mapping_comprehensive(adapter: Db2EngineAdapter):
     """Db2-specific catalog types must map to the correct sqlglot/Db2 SQL types."""
     cases = [
         # (db2_catalog_type, length, scale, expected_db2_sql)
-        ("DECFLOAT",  16,      0, "DOUBLE"),
-        ("GRAPHIC",   50,      0, "CHAR(50)"),
-        ("VARGRAPHIC", 100,    0, "VARCHAR(100)"),
-        ("DBCLOB",    1048576, 0, "CLOB"),
+        ("DECFLOAT", 16, 0, "DOUBLE"),
+        ("GRAPHIC", 50, 0, "CHAR(50)"),
+        ("VARGRAPHIC", 100, 0, "VARCHAR(100)"),
+        ("DBCLOB", 1048576, 0, "CLOB"),
         # XML maps to sqlglot TEXT internally; the Db2 dialect renders TEXT as CLOB
         # (Db2 has no TEXT type — CLOB is the correct unlimited-text equivalent).
-        ("XML",       0,       0, "CLOB"),
-        ("ROWID",     40,      0, "VARCHAR(40)"),
-        ("BOOLEAN",   1,       0, "BOOLEAN"),
+        ("XML", 0, 0, "CLOB"),
+        ("ROWID", 40, 0, "VARCHAR(40)"),
+        ("BOOLEAN", 1, 0, "BOOLEAN"),
     ]
     for db2_type, length, scale, expected in cases:
         result = adapter._db2_type_to_sqlglot(db2_type, length, scale)
@@ -101,7 +109,7 @@ def test_table_exists_found(adapter: Db2EngineAdapter):
     # Exact SQL: identifiers are quoted by quote_identifiers=True in execute().
     # SYSCAT.TABLES is a catalog reference so it renders as "SYSCAT"."TABLES".
     assert to_sql_calls(adapter) == [
-        "SELECT \"TABSCHEMA\", \"TABNAME\" FROM \"SYSCAT\".\"TABLES\" "
+        'SELECT "TABSCHEMA", "TABNAME" FROM "SYSCAT"."TABLES" '
         "WHERE UPPER(\"TABSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"TABNAME\") = 'TEST_TABLE'"
     ]
 
@@ -127,7 +135,7 @@ def test_create_index(adapter: Db2EngineAdapter):
     adapter.create_index("test_schema.test_table", "idx_test", ("col1", "col2"))
 
     assert to_sql_calls(adapter) == [
-        "SELECT \"INDNAME\" FROM \"SYSCAT\".\"INDEXES\" "
+        'SELECT "INDNAME" FROM "SYSCAT"."INDEXES" '
         "WHERE UPPER(\"TABSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"TABNAME\") = 'TEST_TABLE' "
         "AND UPPER(\"INDNAME\") = 'IDX_TEST'",
         'CREATE INDEX "idx_test" ON "test_schema"."test_table"("col1", "col2")',
@@ -168,7 +176,7 @@ def test_create_table_primary_key_not_null(adapter: Db2EngineAdapter):
     # omitting it would cause Db2 to raise SQL0542N at CREATE TABLE time.
     assert to_sql_calls(adapter) == [
         # table_exists check
-        "SELECT \"TABSCHEMA\", \"TABNAME\" FROM \"SYSCAT\".\"TABLES\" "
+        'SELECT "TABSCHEMA", "TABNAME" FROM "SYSCAT"."TABLES" '
         "WHERE UPPER(\"TABSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"TABNAME\") = 'TEST_TABLE'",
         # CREATE TABLE
         'CREATE TABLE "test_schema"."test_table" '
@@ -212,7 +220,7 @@ def test_drop_view_not_found(adapter: Db2EngineAdapter):
     adapter.drop_view("test_schema.myview", ignore_if_not_exists=True)
 
     assert to_sql_calls(adapter) == [
-        "SELECT 1 FROM \"SYSCAT\".\"VIEWS\" "
+        'SELECT 1 FROM "SYSCAT"."VIEWS" '
         "WHERE UPPER(\"VIEWSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"VIEWNAME\") = 'MYVIEW'"
     ]
 
@@ -224,7 +232,7 @@ def test_drop_view_exists(adapter: Db2EngineAdapter):
     adapter.drop_view("test_schema.myview")
 
     assert to_sql_calls(adapter) == [
-        "SELECT 1 FROM \"SYSCAT\".\"VIEWS\" "
+        'SELECT 1 FROM "SYSCAT"."VIEWS" '
         "WHERE UPPER(\"VIEWSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"VIEWNAME\") = 'MYVIEW'",
         'DROP VIEW "test_schema"."myview"',
     ]
@@ -242,7 +250,7 @@ def test_create_schema(adapter: Db2EngineAdapter):
     adapter.create_schema("test_schema", ignore_if_exists=True)
 
     assert to_sql_calls(adapter) == [
-        "SELECT 1 FROM \"SYSCAT\".\"SCHEMATA\" WHERE UPPER(\"SCHEMANAME\") = 'TEST_SCHEMA'",
+        'SELECT 1 FROM "SYSCAT"."SCHEMATA" WHERE UPPER("SCHEMANAME") = \'TEST_SCHEMA\'',
         'CREATE SCHEMA "test_schema"',
     ]
 
@@ -267,21 +275,21 @@ def test_create_schema_already_exists(adapter: Db2EngineAdapter):
 
 def test_drop_schema_cascade(adapter: Db2EngineAdapter):
     """drop_schema with cascade=True drops views then tables then issues DROP SCHEMA RESTRICT."""
-    adapter.cursor.fetchone.return_value = (1,)       # schema exists
+    adapter.cursor.fetchone.return_value = (1,)  # schema exists
     adapter.cursor.fetchall.return_value = [("TBL1",)]  # one object in schema
 
     adapter.drop_schema("TEST_SCHEMA", cascade=True)
 
     assert to_sql_calls(adapter) == [
         # existence check
-        "SELECT 1 FROM \"SYSCAT\".\"SCHEMATA\" WHERE \"SCHEMANAME\" = 'TEST_SCHEMA'",
+        'SELECT 1 FROM "SYSCAT"."SCHEMATA" WHERE "SCHEMANAME" = \'TEST_SCHEMA\'',
         # list views
-        "SELECT \"TABNAME\" FROM \"SYSCAT\".\"TABLES\" "
+        'SELECT "TABNAME" FROM "SYSCAT"."TABLES" '
         "WHERE \"TABSCHEMA\" = 'TEST_SCHEMA' AND \"TYPE\" = 'V'",
         # drop the view
         'DROP VIEW "TEST_SCHEMA"."TBL1"',
         # list tables
-        "SELECT \"TABNAME\" FROM \"SYSCAT\".\"TABLES\" "
+        'SELECT "TABNAME" FROM "SYSCAT"."TABLES" '
         "WHERE \"TABSCHEMA\" = 'TEST_SCHEMA' AND \"TYPE\" = 'T'",
         # drop the table
         'DROP TABLE "TEST_SCHEMA"."TBL1"',
@@ -330,7 +338,7 @@ def test_merge_alias_replacement(adapter: Db2EngineAdapter):
         target_table="target_table",
         source_table=parse_one("SELECT id, value FROM source_table"),
         target_columns_to_types={
-            "id":    exp.DataType.build("INT"),
+            "id": exp.DataType.build("INT"),
             "value": exp.DataType.build("VARCHAR(100)"),
         },
         unique_key=[exp.to_identifier("id", quoted=True)],
@@ -373,9 +381,7 @@ def test_get_current_schema(adapter: Db2EngineAdapter):
     result = adapter._get_current_schema()
 
     assert result == "testschema"
-    assert to_sql_calls(adapter) == [
-        "SELECT CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1"
-    ]
+    assert to_sql_calls(adapter) == ["SELECT CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1"]
 
 
 # ---------------------------------------------------------------------------
@@ -422,12 +428,12 @@ def test_comments_on_table(adapter: Db2EngineAdapter):
     )
 
     assert to_sql_calls(adapter) == [
-        "SELECT \"TABSCHEMA\", \"TABNAME\" FROM \"SYSCAT\".\"TABLES\" "
+        'SELECT "TABSCHEMA", "TABNAME" FROM "SYSCAT"."TABLES" '
         "WHERE UPPER(\"TABSCHEMA\") = 'TEST_SCHEMA' AND UPPER(\"TABNAME\") = 'TEST_TABLE'",
         'CREATE TABLE "test_schema"."test_table" ("id" INTEGER, "name" VARCHAR(100))',
-        "COMMENT ON TABLE \"test_schema\".\"test_table\" IS 'Test table'",
-        "COMMENT ON COLUMN \"test_schema\".\"test_table\".\"id\" IS 'Primary key'",
-        "COMMENT ON COLUMN \"test_schema\".\"test_table\".\"name\" IS 'User name'",
+        'COMMENT ON TABLE "test_schema"."test_table" IS \'Test table\'',
+        'COMMENT ON COLUMN "test_schema"."test_table"."id" IS \'Primary key\'',
+        'COMMENT ON COLUMN "test_schema"."test_table"."name" IS \'User name\'',
     ]
 
 
@@ -444,6 +450,4 @@ def test_create_table_like(adapter: Db2EngineAdapter):
         exists=True,  # adapter must ignore this and always pass exists=False
     )
 
-    assert to_sql_calls(adapter) == [
-        'CREATE TABLE "target_table" (LIKE "source_table")'
-    ]
+    assert to_sql_calls(adapter) == ['CREATE TABLE "target_table" (LIKE "source_table")']

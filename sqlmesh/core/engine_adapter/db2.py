@@ -125,8 +125,7 @@ class Db2EngineAdapter(
             if column in pk_columns and not is_view:
                 existing_constraints = col_def.args.get("constraints") or []
                 has_not_null = any(
-                    isinstance(c, exp.NotNullColumnConstraint)
-                    for c in existing_constraints
+                    isinstance(c, exp.NotNullColumnConstraint) for c in existing_constraints
                 )
                 if not has_not_null:
                     existing_constraints.append(exp.NotNullColumnConstraint())
@@ -282,9 +281,7 @@ class Db2EngineAdapter(
             for column_name, data_type, length, scale in resp
         }
 
-    def _db2_type_to_sqlglot(
-        self, db2_type: str, length: int, scale: int
-    ) -> exp.DataType:
+    def _db2_type_to_sqlglot(self, db2_type: str, length: int, scale: int) -> exp.DataType:
         """Maps a Db2 catalog type name to a sqlglot DataType, using length and scale where applicable."""
         db2_type = db2_type.upper()
         type_mapping = {
@@ -369,7 +366,7 @@ class Db2EngineAdapter(
     def _build_create_table_exp(
         self,
         table_name_or_schema: t.Union[exp.Schema, TableName],
-        expression: t.Optional[exp.Expression],
+        expression: t.Optional[exp.Expr],
         exists: bool = True,
         replace: bool = False,
         target_columns_to_types: t.Optional[t.Dict[str, exp.DataType]] = None,
@@ -395,7 +392,7 @@ class Db2EngineAdapter(
     def _create_table(
         self,
         table_name_or_schema: t.Union[exp.Schema, TableName],
-        expression: t.Optional[exp.Expression],
+        expression: t.Optional[exp.Expr],
         exists: bool = True,
         replace: bool = False,
         target_columns_to_types: t.Optional[t.Dict[str, exp.DataType]] = None,
@@ -507,9 +504,7 @@ class Db2EngineAdapter(
         if not self.cursor.fetchone():
             if ignore_if_not_exists:
                 return
-            raise SQLMeshError(
-                f"View '{table.sql(dialect=self.dialect)}' does not exist."
-            )
+            raise SQLMeshError(f"View '{table.sql(dialect=self.dialect)}' does not exist.")
 
         self.execute(exp.Drop(this=table, kind="VIEW", exists=False))
         self._clear_data_object_cache(view_name)
@@ -537,28 +532,24 @@ class Db2EngineAdapter(
             )
             .from_(exp.table_("TABLES", db="SYSCAT"))
             .where(
-                exp.func("UPPER", exp.column("TABSCHEMA")).eq(
-                    exp.Literal.string(schema.upper())
-                )
+                exp.func("UPPER", exp.column("TABSCHEMA")).eq(exp.Literal.string(schema.upper()))
             )
         )
 
         if object_names:
             query = query.where(
-                exp.func("UPPER", exp.column("TABNAME")).isin(
-                    *[n.upper() for n in object_names]
-                )
+                exp.func("UPPER", exp.column("TABNAME")).isin(*[n.upper() for n in object_names])
             )
 
         df = self.fetchdf(query)
-        df.columns = [c.lower() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]  # type: ignore
 
         return [
             DataObject(
                 catalog=catalog,
-                schema=row.schema_name,
-                name=row.name,
-                type=DataObjectType.from_str(row.type),
+                schema=row.schema_name,  # type: ignore
+                name=row.name,  # type: ignore
+                type=DataObjectType.from_str(row.type),  # type: ignore
             )
             for row in df.itertuples()
         ]
@@ -646,9 +637,7 @@ class Db2EngineAdapter(
             self.execute(
                 exp.select("1")
                 .from_("SYSCAT.SCHEMATA")
-                .where(
-                    exp.column("SCHEMANAME").eq(exp.Literal.string(schema_name_str))
-                )
+                .where(exp.column("SCHEMANAME").eq(exp.Literal.string(schema_name_str)))
             )
             if not self.cursor.fetchone():
                 logger.debug("Schema %s does not exist, skipping drop", schema_name_str)
@@ -683,7 +672,7 @@ class Db2EngineAdapter(
         self,
         target_table: TableName,
         query: Query,
-        on: exp.Expression,
+        on: exp.Expr,
         whens: exp.Whens,
     ) -> None:
         """
@@ -692,9 +681,7 @@ class Db2EngineAdapter(
         the MERGE statement is executed.
         """
         this = exp.alias_(exp.to_table(target_table), alias="TARGET", table=True)
-        using = exp.alias_(
-            exp.Subquery(this=query), alias="SOURCE", copy=False, table=True
-        )
+        using = exp.alias_(exp.Subquery(this=query), alias="SOURCE", copy=False, table=True)
 
         def _replace_alias(node: exp.Expression) -> exp.Expression:
             if isinstance(node, exp.Column):
@@ -725,9 +712,7 @@ class Db2EngineAdapter(
             exp.Create(
                 this=exp.Schema(
                     this=exp.to_table(target_table_name),
-                    expressions=[
-                        exp.LikeProperty(this=exp.to_table(source_table_name))
-                    ],
+                    expressions=[exp.LikeProperty(this=exp.to_table(source_table_name))],
                 ),
                 kind="TABLE",
                 # Always pass exists=False here: Db2 pre-11.5.8 does not support
@@ -762,7 +747,7 @@ class Db2EngineAdapter(
                 df[column] = pd.to_datetime(df[column]).dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
 
     def _fetch_native_df(
-        self, query: t.Union[exp.Expression, str], quote_identifiers: bool = False
+        self, query: t.Union[exp.Expr, str], quote_identifiers: bool = False
     ) -> "DF":
         """
         Db2 stores identifiers created with quoting as case-sensitive (e.g. "id").

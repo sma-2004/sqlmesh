@@ -1,6 +1,6 @@
 import typing as t
 
-import pandas as pd
+import pandas as pd  # noqa: TID253
 import pytest
 from pytest import FixtureRequest
 from sqlglot import exp
@@ -17,7 +17,9 @@ from tests.core.engine_adapter.integration import (
 @pytest.fixture(params=list(generate_pytest_params(ENGINES_BY_NAME["db2"])))
 def ctx(
     request: FixtureRequest,
-    create_test_context: t.Callable[[IntegrationTestEngine, str, str, str], t.Iterable[TestContext]],
+    create_test_context: t.Callable[
+        [IntegrationTestEngine, str, str, str], t.Iterable[TestContext]
+    ],
 ) -> t.Iterable[TestContext]:
     yield from create_test_context(*request.param)
 
@@ -268,9 +270,7 @@ def test_drop_schema_cascade(ctx: TestContext) -> None:
     # ctx.schema() returns a potentially catalog-qualified string like "MYDB.CASCADE_SCHEMA_abc123".
     # We only need the rightmost part (the schema name itself) for SYSCAT.SCHEMATA.
     schema_only = schema.split(".")[-1].upper()
-    ctx.engine_adapter.execute(
-        f"SELECT 1 FROM SYSCAT.SCHEMATA WHERE SCHEMANAME = '{schema_only}'"
-    )
+    ctx.engine_adapter.execute(f"SELECT 1 FROM SYSCAT.SCHEMATA WHERE SCHEMANAME = '{schema_only}'")
     assert ctx.engine_adapter.cursor.fetchone() is None
 
 
@@ -297,9 +297,7 @@ def test_merge_replaces_double_underscore_aliases(ctx: TestContext) -> None:
         target,
         {"id": exp.DataType.build("INT"), "val": exp.DataType.build("VARCHAR(50)")},
     )
-    ctx.engine_adapter.execute(
-        f"INSERT INTO {target.sql(ctx.dialect)} VALUES (1, 'old')"
-    )
+    ctx.engine_adapter.execute(f"INSERT INTO {target.sql(ctx.dialect)} VALUES (1, 'old')")
 
     source_df = pd.DataFrame({"id": [1, 2], "val": ["updated", "new"]})
 

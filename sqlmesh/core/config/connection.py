@@ -2609,7 +2609,7 @@ class Db2ConnectionConfig(ConnectionConfig):
     type_: t.Literal["db2"] = Field(alias="type", default="db2")
     DIALECT: t.ClassVar[t.Literal["db2"]] = "db2"
     DISPLAY_NAME: t.ClassVar[t.Literal["Db2"]] = "Db2"
-    DISPLAY_ORDER: t.ClassVar[t.Literal[17]] = 17
+    DISPLAY_ORDER: t.ClassVar[t.Literal[19]] = 19
 
     _engine_import_validator = _get_engine_import_validator("ibm_db", "db2")
 
@@ -2636,7 +2636,7 @@ class Db2ConnectionConfig(ConnectionConfig):
 
     @property
     def _connection_factory(self) -> t.Callable:
-        import ibm_db_dbi
+        import ibm_db_dbi  # type: ignore
 
         ssl = self.ssl
         ssl_cert = self.ssl_cert
