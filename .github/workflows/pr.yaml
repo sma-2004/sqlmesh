@@ -82,11 +82,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Fetch upstream tags (TEMPORARY - Remove before PR)
-        run: |
-          git remote add upstream https://github.com/TobikoData/sqlmesh.git || true
-          git fetch upstream --tags
-        continue-on-error: true
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
