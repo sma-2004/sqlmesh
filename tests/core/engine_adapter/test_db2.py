@@ -3,6 +3,12 @@ import sys
 import typing as t
 
 import pytest
+
+# Skip entire module if Python < 3.10 BEFORE any DB2 imports
+# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
+if sys.version_info < (3, 10):
+    pytest.skip("DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect", allow_module_level=True)
+
 from pytest_mock.plugin import MockerFixture
 from sqlglot import expressions as exp
 from sqlglot import parse_one
@@ -11,15 +17,10 @@ from sqlmesh.core.engine_adapter.db2 import Db2EngineAdapter
 from sqlmesh.core.engine_adapter.shared import CatalogSupport
 from tests.core.engine_adapter import to_sql_calls
 
-# Skip all tests in this file if Python < 3.10
-# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
+# Mark all tests in this file
 pytestmark = [
     pytest.mark.engine,
     pytest.mark.db2,
-    pytest.mark.skipif(
-        sys.version_info < (3, 10),
-        reason="DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect",
-    ),
 ]
 
 

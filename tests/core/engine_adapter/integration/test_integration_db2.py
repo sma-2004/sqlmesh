@@ -1,8 +1,14 @@
 import sys
 import typing as t
 
-import pandas as pd  # noqa: TID253
 import pytest
+
+# Skip entire module if Python < 3.10 BEFORE any DB2 imports
+# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
+if sys.version_info < (3, 10):
+    pytest.skip("DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect", allow_module_level=True)
+
+import pandas as pd  # noqa: TID253
 from pytest import FixtureRequest
 from sqlglot import exp
 
@@ -12,12 +18,6 @@ from tests.core.engine_adapter.integration import (
     generate_pytest_params,
     ENGINES_BY_NAME,
     IntegrationTestEngine,
-)
-
-# Skip all tests in this file if Python < 3.10
-# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
-pytestmark = pytest.mark.skipif(
-    sys.version_info < (3, 10), reason="DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect"
 )
 
 
