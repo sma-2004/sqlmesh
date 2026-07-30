@@ -2646,8 +2646,7 @@ class Db2ConnectionConfig(ConnectionConfig):
         # DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect
         # Use getattr to avoid mypy errors on Python 3.9
         return t.cast(
-            t.Type[EngineAdapter],
-            getattr(engine_adapter, "Db2EngineAdapter", EngineAdapter)
+            t.Type[EngineAdapter], getattr(engine_adapter, "Db2EngineAdapter", EngineAdapter)
         )
 
     def get_catalog(self) -> t.Optional[str]:

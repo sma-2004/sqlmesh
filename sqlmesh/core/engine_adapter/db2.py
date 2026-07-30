@@ -193,7 +193,9 @@ class Db2EngineAdapter(
         except Exception as e:
             # DB2 can return either SQL0605W (index exists warning) or
             # SQL0601N (duplicate object name error) when index already exists
-            if is_db2_error(e, Db2ErrorCodes.INDEX_EXISTS) or is_db2_error(e, Db2ErrorCodes.DUPLICATE_OBJECT):
+            if is_db2_error(e, Db2ErrorCodes.INDEX_EXISTS) or is_db2_error(
+                e, Db2ErrorCodes.DUPLICATE_OBJECT
+            ):
                 logger.debug("Index %s already exists, skipping", index_name)
                 return
             raise
