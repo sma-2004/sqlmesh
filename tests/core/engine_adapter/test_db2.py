@@ -1,4 +1,5 @@
 # type: ignore
+import sys
 import typing as t
 
 import pytest
@@ -10,7 +11,16 @@ from sqlmesh.core.engine_adapter.db2 import Db2EngineAdapter
 from sqlmesh.core.engine_adapter.shared import CatalogSupport
 from tests.core.engine_adapter import to_sql_calls
 
-pytestmark = [pytest.mark.engine, pytest.mark.db2]
+# Skip all tests in this file if Python < 3.10
+# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
+pytestmark = [
+    pytest.mark.engine,
+    pytest.mark.db2,
+    pytest.mark.skipif(
+        sys.version_info < (3, 10),
+        reason="DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect",
+    ),
+]
 
 
 @pytest.fixture

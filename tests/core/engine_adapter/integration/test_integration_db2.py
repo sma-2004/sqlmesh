@@ -1,3 +1,4 @@
+import sys
 import typing as t
 
 import pandas as pd  # noqa: TID253
@@ -11,6 +12,12 @@ from tests.core.engine_adapter.integration import (
     generate_pytest_params,
     ENGINES_BY_NAME,
     IntegrationTestEngine,
+)
+
+# Skip all tests in this file if Python < 3.10
+# DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect dependency
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 10), reason="DB2 adapter requires Python 3.10+ for db2-sqlglot-dialect"
 )
 
 
