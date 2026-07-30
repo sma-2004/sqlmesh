@@ -1,7 +1,6 @@
 services:
   db2:
     image: icr.io/db2_community/db2:latest
-    platform: linux/amd64
     container_name: db2
     # IBM Db2 Community Edition — accepting the license is required to start the container.
     # This is standard for IBM community images; it does not require an IBM account
