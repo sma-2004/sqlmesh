@@ -240,10 +240,10 @@ def test_create_table(ctx: TestContext):
 
 
 def test_ctas(ctx_query_and_df: TestContext):
+    ctx = ctx_query_and_df
     if ctx.dialect == "db2":
         pytest.skip("DB2: Comment retrieval query not in test infrastructure")
     
-    ctx = ctx_query_and_df
     table = ctx.table("test_table")
 
     input_data = pd.DataFrame(
@@ -328,10 +328,10 @@ def test_ctas_source_columns(ctx_query_and_df: TestContext):
 
 
 def test_create_view(ctx_query_and_df: TestContext):
+    ctx = ctx_query_and_df
     if ctx.dialect == "db2":
         pytest.skip("DB2: Comment retrieval query not in test infrastructure")
     
-    ctx = ctx_query_and_df
     input_data = pd.DataFrame(
         [
             {"id": 1, "ds": "2022-01-01"},
@@ -1124,10 +1124,10 @@ def test_merge_source_columns(ctx_query_and_df: TestContext):
 
 
 def test_scd_type_2_by_time(ctx_query_and_df: TestContext):
-    if ctx.dialect == "db2":
-        pytest.skip("DB2: SCD Type 2 SQL syntax not yet implemented")
-    
     ctx = ctx_query_and_df
+    if ctx.dialect == "db2":
+        pytest.skip("DB2: Comment retrieval query not in test infrastructure")
+    
     # Athena only supports the operations required for SCD models on Iceberg tables
     if ctx.mark == "athena_hive":
         pytest.skip("SCD Type 2 is only supported on Athena / Iceberg")
@@ -1480,10 +1480,10 @@ def test_scd_type_2_by_time_source_columns(ctx_query_and_df: TestContext):
 
 
 def test_scd_type_2_by_column(ctx_query_and_df: TestContext):
-    if ctx.dialect == "db2":
-        pytest.skip("DB2: SCD Type 2 SQL syntax not yet implemented")
-    
     ctx = ctx_query_and_df
+    if ctx.dialect == "db2":
+        pytest.skip("DB2: Comment retrieval query not in test infrastructure")
+    
     # Athena only supports the operations required for SCD models on Iceberg tables
     if ctx.mark == "athena_hive":
         pytest.skip("SCD Type 2 is only supported on Athena / Iceberg")
@@ -3549,10 +3549,10 @@ def test_state_migrate_from_scratch(ctx: TestContext):
 
 
 def test_python_model_column_order(ctx_df: TestContext, tmp_path: pathlib.Path):
+    ctx = ctx_df
     if ctx.dialect == "db2":
         pytest.skip("DB2: Column ordering behavior differences")
     
-    ctx = ctx_df
 
     model_name = ctx.table("TEST")
 
